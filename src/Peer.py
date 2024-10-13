@@ -18,7 +18,7 @@ class Peer:
                 self.host = host_str
                 self.host_formated = host_str
             else:
-                raise ValueError(f"Invalid host: {host_str}")
+                raise ValueError(f"Invalid host or IP: {host_str}")
 
     def __str__(self) -> str:
         return f"{self.host_formated}:{self.port}"
@@ -31,24 +31,32 @@ class Peer:
 
     def __repr__(self) -> str:
         return f"Peer: {self}"
-
-    @staticmethod
-    def validate_hostname(host_str: str) -> bool:
+    
+    def validate_hostname(host_str) -> bool:
         """
-        Validates if the provided string is a valid hostname.
+        Validates a given hostname string.
+    
         A valid hostname:
-        - Contains only alphanumeric characters and hyphens.
-        - Each label (parts separated by dots) is between 1 and 63 characters.
-        - The entire hostname does not exceed 255 characters.
+        - Has a length of 253 characters or less.
+        - Is composed of labels separated by dots.
+        - Each label is between 1 and 63 characters long.
+        - Each label contains only alphanumeric characters and hyphens.
+        - Each label does not start or end with a hyphen.
         """
-        if len(host_str) > 255:
+        # Check if hostname is valid
+        if len(host_str) > 253:
             return False
-        # Remove the trailing dot if present
-        if host_str[-1] == ".":
-            host_str = host_str[:-1]
-        # Split the hostname into labels
-        labels = host_str.split(".")
-        # Define a regular expression pattern for a valid label
-        pattern = re.compile(r"^[a-zA-Z0-9-]{1,63}$")
-        # Check each label against the pattern
-        return all(pattern.match(label) for label in labels)
+        
+        # Split by dots and validate each label
+        labels = host_str.split('.')
+        for label in labels:
+            if len(label) == 0 or len(label) > 63:
+                return False
+            if not re.match("^[a-zA-Z0-9-]*$", label):
+                return False
+            if label.startswith('-') or label.endswith('-'):
+                return False
+        
+        return True
+
+

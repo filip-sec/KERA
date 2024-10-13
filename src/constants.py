@@ -1,6 +1,6 @@
 from Peer import Peer
 
-MODE_NAME = "GajdakCoin"
+NODE_NAME = "GajdakCoin"
 PORT = 18018
 ADDRESS = "0.0.0.0"
 SERVICE_LOOP_DELAY = 10
