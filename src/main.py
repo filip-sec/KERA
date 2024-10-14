@@ -51,22 +51,22 @@ def del_connection(peer):
     if peer in CONNECTIONS:
         del CONNECTIONS[peer]
 
-# Make msg objects
-def mk_error_msg(error_str, error_name):
-    error_msg = {
+# Error message generator
+def mk_error_msg(error_name, error_str):
+    return {
         "type": "error",
-        "error": error_str,
-        "name": error_name
+        "name": error_name,
+        "msg": error_str
     }
-    return json.dumps(error_msg, separators=(',', ':')) + "\n"
 
+# Hello message generator
 def mk_hello_msg():
-    hello_msg = {
+    return{
         "type": "hello",
-        "version": "0.10.4",
-        "agent": "NewNode"
+        "version": "0.10.0",
+        "agent": "Kerma-Core Client 0.10"
     }
-    return json.dumps(hello_msg, separators=(',', ':')) + "\n"
+    
 
 def mk_getpeers_msg():
     getpeers_msg = {
@@ -124,21 +124,56 @@ async def write_msg(writer, msg_dict):
     except Exception as e:
         print(f"Filed to send message: {str(e)}")
 
-# Check if message contains no invalid keys,
-# raises a MalformedMsgException
-def validate_allowed_keys(msg_dict, allowed_keys, msg_type):
-    pass # TODO
+def validate_keys(msg_dict, required_keys, optional_keys, msg_type):
+    """
+    Validates that a message dictionary contains only allowed keys and includes all required keys.
 
+    Args:
+        msg_dict (dict): The message dictionary to validate.
+        required_keys (set): A set of keys that are required in the message.
+        optional_keys (set): A set of keys that are optional in the message.
+        msg_type (str): The type of the message being validated.
 
-# Validate the hello message
-# raises an exception
-def validate_hello_msg(msg_dict):
-    required_keys = ["type", "version", "agent"]
+    Raises:
+        MalformedMsgException: If the message contains an invalid key or is missing a required key.
+    """
+    allowed_keys = required_keys | optional_keys
+
+    # Check for invalid keys
+    for key in msg_dict.keys():
+        if key not in allowed_keys:
+            raise MalformedMsgException(f"Invalid key '{key}' in '{msg_type}' message.")
+    
+    # Check for missing required keys
     for key in required_keys:
-        if key not in msg_dict:
-            raise MessageException("Invalid hello message: missing required key")
-        if msg_dict["type"] != "hello":
-            raise MessageException("Invalid hello message: wrong type")
+        if key not in msg_dict.keys():
+            raise MalformedMsgException(f"Missing required key '{key}' in '{msg_type}' message.")
+
+# Parse and validate the 'hello' message
+def validate_hello_msg(msg_dict):
+    """
+    Validates the 'hello' message.
+
+    Args:
+        msg_dict (dict): The 'hello' message dictionary to validate.
+
+    Raises:
+        MalformedMsgException: If the message is malformed.
+    """
+    required_keys = {"type", "version", "agent"}
+    optional_keys = set()  # No optional keys for 'hello' message
+    validate_keys(msg_dict, required_keys, optional_keys, "hello")
+    
+    version = msg_dict.get("version")
+    if not version or not version.startswith(const.HELLO_VERSION) or len(version) != 6:
+        raise MalformedMsgException("Invalid 'version' in 'hello' message.")
+
+    agent = msg_dict.get("agent")
+    if not agent or len(agent) > const.HELLO_AGENT_MAX_LEN or not agent.isascii() or not agent.isprintable():
+        raise MalformedMsgException("Invalid 'agent' in 'hello' message.")
+
+    
+
 
 
 # returns true iff host_str is a valid hostname
@@ -303,13 +338,13 @@ async def handle_mempool_msg(msg_dict):
 async def handle_queue_msg(msg_dict, writer):
     pass # TODO
 
-# how to handle a connection
+# Handle incoming connections
 async def handle_connection(reader, writer):
-    read_task = None
-    queue_task = None
-
+    buffer = ""  # Buffer to accumulate incomplete messages
     peer = None
     queue = asyncio.Queue()
+    received_hello = False  # Track if the hello message has been received
+
     try:
         peer = writer.get_extra_info('peername')
         if not peer:
@@ -317,97 +352,95 @@ async def handle_connection(reader, writer):
 
         print(f"New connection with {peer}")
 
-        # Send the "hello" message
+        # Send your hello message
         await write_msg(writer, mk_hello_msg())
         print(f"Sent 'hello' message to {peer}")
 
-        # Wait to receive the "hello" message from the peer
-        msg_str = await asyncio.wait_for(reader.readline(), timeout=20.0)
-        msg_dict = parse_msg(msg_str)
-        if msg_dict['type'] != 'hello':
-            raise MessageException("First message must be 'hello'")
-        validate_hello_msg(msg_dict)
-        add_connection(peer, queue)
-        print(f"Handshake complete with {peer}. Received 'hello'.")
-
-        # Now, after receiving the 'hello' message, send the "getpeers" message
-        #await write_msg(writer, mk_getpeers_msg())
-        #print(f"Sent 'getpeers' message to {peer}")
-
-    except asyncio.TimeoutError:
-        print(f"Timeout waiting for 'hello' message from {peer}. Closing connection.")
-        try:
-            await write_msg(writer, mk_error_msg("Timeout", "No hello message received in time"))
-        except:
-            pass
-        writer.close()
-        return
-    except MessageException as e:
-        print(f"Error during handshake with {peer}: {str(e)}")
-        try:
-            await write_msg(writer, mk_error_msg("INVALID_HANDSHAKE", str(e)))
-        except:
-            pass
-        writer.close()
-        return
-    except Exception as e:
-        print(f"Exception: {str(e)}")
-        writer.close()
-        return
-
-    # Enter the main message loop
-    try:
-        print(f"Entering message loop with {peer}")
+        # Set a timeout for receiving the first "hello" message (20 seconds)
         while True:
-            if read_task is None:
-                read_task = asyncio.create_task(reader.readline())
-            if queue_task is None:
-                queue_task = asyncio.create_task(queue.get())
+            try:
+                data = await asyncio.wait_for(reader.read(const.RECV_BUFFER_LIMIT), timeout=20.0)
+                if not data:  # Peer closed connection
+                    print(f"{peer}: Connection closed by peer.")
+                    break
 
-            # Wait for network or queue messages
-            done, pending = await asyncio.wait([read_task, queue_task], return_when=asyncio.FIRST_COMPLETED)
-            if read_task in done:
-                msg_str = read_task.result()
-                read_task = None
+                buffer += data.decode('utf-8')
+                
+                print(f'Buffer: {buffer}')
 
-            if queue_task in done:
-                queue_msg = queue_task.result()
-                queue_task = None
-                await handle_queue_msg(queue_msg, writer)
-                queue.task_done()
+                # Process all complete messages (separated by '\n')
+                while '\n' in buffer:
+                    msg_str, buffer = buffer.split('\n', 1)
+                    msg_str = msg_str.strip()
 
-            # Handle empty message (peer closed connection)
-            if msg_str == b'':
-                print(f"{peer}: Connection closed by peer.")
-                break  # Exit the loop and close the connection
+                    if msg_str:  # Ignore empty messages
+                        print(f"Received raw message: {msg_str}")
+                        try:
+                            msg_dict = parse_msg(msg_str)
+                            validate_msg(msg_dict)  # Validate using validate_msg function
 
-            # Parse and handle the received message
-            msg_dict = parse_msg(msg_str)
-            
-            print(f"Received message from {peer}: {msg_dict}")
+                            if not received_hello:
+                                if msg_dict.get('type') != 'hello':
+                                    print(f"First message from {peer} is not 'hello'. Closing connection.")
+                                    await write_msg(writer, mk_error_msg("INVALID_HANDSHAKE", "First message is not 'hello'"))
+                                    writer.close()
+                                    del_connection(peer)
+                                    return
+                                
+                                validate_hello_msg(msg_dict)
+                                received_hello = True
+                                add_connection(peer, queue)
+                                print(f"Handshake complete with {peer}. Received 'hello'.")
+                            else:
+                                await handle_message(msg_dict, writer, peer)
 
-            if msg_dict['type'] == 'getpeers':
-                print(f"Received 'getpeers' request from {peer}")
-                await write_msg(writer, mk_peers_msg())
-            elif msg_dict['type'] == 'peers':
-                handle_peers_msg(msg_dict)
-                print(f"Received peers list from {peer}.")
-            elif msg_dict['type'] == 'getchaintip':
-                await write_msg(writer, mk_chaintip_msg(get_chaintip_blockid()))
-                print(f"Received 'getchaintip' request from {peer}")
-            else:
-                print(f"Unknown message type received from {peer}: {msg_dict['type']}")
-            
-    except Exception as e:
-        print(f"Exception in message handling: {str(e)}")
+                        except (MalformedMsgException) as e:
+                            error_name = "INVALID_FORMAT"
+                            error_message = mk_error_msg(error_name, str(e))
+                            await write_msg(writer, error_message)
+                            print(f"Error: {str(e)}")
+                            writer.close()
+                            del_connection(peer)
+                            return  # Close connection on error
+                        
+                        except MessageException as e:
+                            error_name = "INVALID_HANDSHAKE"
+                            error_message = mk_error_msg(error_name, str(e))
+                            await write_msg(writer, error_message)
+                            print(f"Error: {str(e)}")
+                            writer.close()
+                            del_connection(peer)
+                            return # Close connection on error
+
+            except asyncio.TimeoutError:
+                if not received_hello:
+                    print(f"Timeout waiting for 'hello' message from {peer}.")
+                    await write_msg(writer, mk_error_msg("INVALID_HANDSHAKE", "Timeout waiting for 'hello' message"))
+                    return # Close connection on error
+
     finally:
         print(f"Closing connection with {peer}")
         writer.close()
         del_connection(peer)
-        if read_task is not None and not read_task.done():
-            read_task.cancel()
-        if queue_task is not None and not queue_task.done():
-            queue_task.cancel()
+
+
+async def handle_message(msg_dict, writer, peer):
+    """Helper function to handle post-handshake messages."""
+    msg_type = msg_dict['type']
+    if msg_type == 'hello':
+        raise MessageException("Received 'hello' message after handshake.")
+    if msg_type == 'getpeers':
+        print(f"Received 'getpeers' request from {peer}")
+        await write_msg(writer, mk_peers_msg())
+    elif msg_type == 'peers':
+        handle_peers_msg(msg_dict)
+        print(f"Received peers list from {peer}.")
+    elif msg_type == 'getchaintip':
+        await write_msg(writer, mk_chaintip_msg(get_chaintip_blockid()))
+        print(f"Received 'getchaintip' request from {peer}")
+    else:
+        print(f"Unknown message type received from {peer}: {msg_dict['type']}")
+
 
 
 
