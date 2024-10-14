@@ -76,13 +76,34 @@ def mk_getpeers_msg():
     }
 
 def mk_peers_msg():
-    # Convert the set of peers to a list and format it appropriately
-    peers_list = list(PEERS)  # Assuming PEERS is a set or collection of peers
+    """
+    Create a 'peers' message with up to 30 known peers in the format 'host:port'.
+    Includes the current node as the first peer if listening.
+    """
+    # Initialize the list of peers to include in the message
+    peers_list = []
+
+    # Add the current node (self) as the first peer if it's listening for connections
+    if LISTEN_CFG['address'] and LISTEN_CFG['port']:
+        self_peer = f"{LISTEN_CFG['address']}:{LISTEN_CFG['port']}"
+        peers_list.append(self_peer)
+    
+    # Add up to 29 other known peers (to keep total size <= 30)
+    known_peers = list(PEERS)  # Get a list from the set of known peers
+    random.shuffle(known_peers)  # Randomize the peer order
+    
+    # Limit to 29 additional peers
+    for peer in known_peers[:29]:
+        peers_list.append(str(peer))  # Convert the Peer object to string (host:port)
+
+    # Create and return the peers message
     peers_msg = {
         "type": "peers",
-        "peers": peers_list  # Use the peers_list here
+        "peers": peers_list
     }
+
     return peers_msg
+
 
 def mk_getobject_msg(objid):
     pass # TODO
