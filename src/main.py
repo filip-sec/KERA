@@ -399,8 +399,6 @@ async def handle_connection(reader, writer):
                             error_message = mk_error_msg(error_name, str(e))
                             await write_msg(writer, error_message)
                             print(f"Error: {str(e)}")
-                            writer.close()
-                            del_connection(peer)
                             return  # Close connection on error
                         
                         except MessageException as e:
@@ -408,8 +406,6 @@ async def handle_connection(reader, writer):
                             error_message = mk_error_msg(error_name, str(e))
                             await write_msg(writer, error_message)
                             print(f"Error: {str(e)}")
-                            writer.close()
-                            del_connection(peer)
                             return # Close connection on error
 
             except asyncio.TimeoutError:
