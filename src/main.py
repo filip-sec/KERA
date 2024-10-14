@@ -516,21 +516,51 @@ async def bootstrap():
     global PEERS
     PEERS = peer_db.load_peers()
     
-    for peer in const.PRELOADED_PEERS:
-        await connect_to_node(peer)    
+    for peer in const.PRELOADED_PEERS | PEERS:
+        try:
+            await connect_to_node(peer)
+        except Exception as e:
+            print(f"Failed to connect to {peer}: {str(e)}")  
 
-# connect to some peers
-async def resupply_connections():
-    for peer in const.PRELOADED_PEERS:
-        if peer not in CONNECTIONS:  # If no active connection, create one
-            print(f"Connecting to peer: {peer}")
+# Ensure the node has at least the threshold number of active connections.
+def resupply_connections():
+    """
+    Ensure the node has at least the threshold number of active connections.
+    If connections fall below the threshold, attempt to connect to known peers.
+    This version is non-async.
+    """
+    low_connection_threshold = const.LOW_CONNECTION_THRESHOLD  # Threshold from constants
+    current_connections = len(CONNECTIONS)
+
+    # Only resupply if below the threshold
+    if current_connections >= low_connection_threshold:
+        print(f"Current connections ({current_connections}) meet or exceed the threshold ({low_connection_threshold}). No action needed.")
+        return
+
+    # Calculate how many more connections are needed
+    needed_connections = low_connection_threshold - current_connections
+    print(f"Currently have {current_connections} connections, trying to add {needed_connections} more connections.")
+
+    # Randomize the list of known peers and attempt to connect to fill the gap
+    known_peers = list(PEERS.union(const.PRELOADED_PEERS))  # Combine known and preloaded peers
+    random.shuffle(known_peers)
+
+    # Start connection attempts to meet the threshold
+    for peer in known_peers:
+        if peer not in CONNECTIONS:
+            print(f"Attempting to connect to peer: {peer}")
             try:
-                await asyncio.sleep(5)  # Add delay between connection attempts
-                await connect_to_node(peer)
+                # Start connection attempt as a background task
+                asyncio.create_task(connect_to_node(peer))  # No await, scheduling connection
+                current_connections += 1
+                if current_connections >= low_connection_threshold:
+                    print(f"Connection threshold reached with {current_connections} connections.")
+                    break  # Stop once the threshold is met
             except Exception as e:
-                print(f"Failed to connect to {peer} - {str(e)}")
+                print(f"Failed to connect to {peer}: {str(e)}")
 
-
+    if current_connections < low_connection_threshold:
+        print(f"Warning: Unable to reach connection threshold. Currently at {current_connections} connections.")
 
 
 async def init():
@@ -542,14 +572,15 @@ async def init():
     # Create bootstrap and listen tasks
     bootstrap_task = asyncio.create_task(bootstrap())
     listen_task = asyncio.create_task(listen())
+    
 
     # Service loop
     while True:
         print("Service loop reporting in.")
         print("Open connections: {}".format(set(CONNECTIONS.keys())))
-
+        
         # Open more connections if necessary
-        #await resupply_connections()  # Ensure that this async function is awaited
+        #resupply_connections()
 
         # Delay between service loop iterations
         await asyncio.sleep(const.SERVICE_LOOP_DELAY)
