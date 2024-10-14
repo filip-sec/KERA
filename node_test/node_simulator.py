@@ -56,6 +56,19 @@ async def send_messages(writer):
 
         response_json = json.dumps(response) + "\n"  # Add newline for completeness
 
+        # Split the response in half to simulate a partial response
+        #part1 = response_json[:len(response_json)//2]
+        #writer.write(part1.encode('utf-8'))
+        #await writer.drain()
+        
+        # Simulate a delay
+        #await asyncio.sleep(5)
+        
+        #part2 = response_json[len(response_json)//2:]
+        #writer.write(part2.encode('utf-8'))
+        #await writer.drain()
+    
+        
         # Send response back to the client
         writer.write(response_json.encode('utf-8'))
         await writer.drain()  # Ensure the data is sent
