@@ -28,11 +28,10 @@ LISTEN_CFG = {
 }
 
 # Add peer to your list of peers
-def add_peer(peer):
+def add_peer(peer_host, peer_port):
     try:
-            peer_host, peer_port = peer
             if not Peer.validate_peer(peer_host, peer_port):
-                print(f"Invalid peer format: {peer}")
+                print(f"Invalid peer format: {peer_host}:{peer_port}")
                 return
             new_peer = Peer(peer_host, peer_port)
             if new_peer in PEERS:
@@ -42,7 +41,7 @@ def add_peer(peer):
                 PEERS.add(new_peer)
                 print(f"New peer {new_peer} added to the list.")
     except Exception as e:
-            print(f"Failed to add peer {peer}: {str(e)}")
+            print(f"Failed to add peer {peer_host}:{peer_port}: {str(e)}")
 
 # Add connection if not already open
 def add_connection(peer, queue):
@@ -72,10 +71,9 @@ def mk_hello_msg():
     
 
 def mk_getpeers_msg():
-    getpeers_msg = {
+    return {
         "type": "getpeers"
     }
-    return json.dumps(getpeers_msg, separators=(',', ':')) + "\n"
 
 def mk_peers_msg():
     # Convert the set of peers to a list and format it appropriately
@@ -84,7 +82,7 @@ def mk_peers_msg():
         "type": "peers",
         "peers": peers_list  # Use the peers_list here
     }
-    return json.dumps(peers_msg, separators=(',', ':')) + "\n"
+    return peers_msg
 
 def mk_getobject_msg(objid):
     pass # TODO
@@ -175,29 +173,34 @@ def validate_hello_msg(msg_dict):
     if not agent or len(agent) > const.HELLO_AGENT_MAX_LEN or not agent.isascii() or not agent.isprintable():
         raise MalformedMsgException("Invalid 'agent' in 'hello' message.")
 
-    
-
-
-
-# returns true iff host_str is a valid hostname
-def validate_hostname(host_str):
-    pass # TODO
-
-# returns true iff host_str is a valid ipv4 address
-def validate_ipv4addr(host_str):
-    pass # TODO
-
-# returns true iff peer_str is a valid peer address
-def validate_peer_str(peer_str):
-    pass # TODO
-
-# raise an exception if not valid
+# Validate the 'peers' message
 def validate_peers_msg(msg_dict):
-    pass # TODO
+    required_keys = {"type", "peers"}
+    optional_keys = set()
+    validate_keys(msg_dict, required_keys, optional_keys, "peers")
+    
+    if msg_dict.get("type") != "peers":
+        raise MalformedMsgException("Invalid 'peers' message type.")
+    
+    peers_list = msg_dict.get("peers")
+    if not isinstance(peers_list, list) or len(peers_list) > 30:
+        raise MalformedMsgException("Invalid 'peers' list.")
+    
+    for peer in peers_list:
+        peer_host, peer_port = peer
+        if not Peer.validate_peer(peer_host, peer_port):
+            raise MalformedMsgException(f"Invalid peer format: {peer}")
+        
 
-# raise an exception if not valid
+
+# Validate the 'getpeers' message
 def validate_getpeers_msg(msg_dict):
-    pass # TODO
+    required_keys = {"type"}
+    optional_keys = set()
+    validate_keys(msg_dict, required_keys, optional_keys, "getpeers")
+    if msg_dict.get("type") != "getpeers":
+        raise MalformedMsgException("Invalid 'getpeers' message type.")
+
 
 # raise an exception if not valid
 def validate_getchaintip_msg(msg_dict):
@@ -260,7 +263,19 @@ def validate_msg(msg_dict):
 
 
 def handle_peers_msg(msg_dict):
-    pass # TODO
+    peers_list = msg_dict.get("peers")
+    
+    for peer_str in peers_list:
+        try:
+            # Extract the host and port
+            host, port = peer_str.split(':')
+            port = int(port)
+            
+            # Add valid peers to known peers
+            add_peer(host, port)
+        except Exception as e:
+            print(f"Failed to add peer {peer_str}: {str(e)}")
+
 
 
 def handle_error_msg(msg_dict, peer_self):
@@ -354,7 +369,8 @@ async def handle_connection(reader, writer):
             raise Exception("Failed to get peername!")
 
         print(f"New connection with {peer}")
-        add_peer(peer)
+        peer_host, peer_port = peer
+        add_peer(peer_host, peer_port)
 
         # Send your hello message
         await write_msg(writer, mk_hello_msg())
@@ -395,14 +411,13 @@ async def handle_connection(reader, writer):
                                     del_connection(peer)
                                     return
                                 
-                                validate_hello_msg(msg_dict)
                                 received_hello = True
                                 add_connection(peer, queue)
                                 print(f"Handshake complete with {peer}. Received 'hello'.")
                             else:
                                 await handle_message(msg_dict, writer, peer)
 
-                        except (MalformedMsgException) as e:
+                        except MalformedMsgException as e:
                             error_name = "INVALID_FORMAT"
                             error_message = mk_error_msg(error_name, str(e))
                             await write_msg(writer, error_message)
@@ -435,7 +450,10 @@ async def handle_message(msg_dict, writer, peer):
         raise MessageException("Received 'hello' message after handshake.")
     if msg_type == 'getpeers':
         print(f"Received 'getpeers' request from {peer}")
-        await write_msg(writer, mk_peers_msg())
+        # Create and send the peers message
+        peers_msg = mk_peers_msg()
+        await write_msg(writer, peers_msg)
+        print(f"Sent 'peers' message to {peer}")
     elif msg_type == 'peers':
         handle_peers_msg(msg_dict)
         print(f"Received peers list from {peer}.")

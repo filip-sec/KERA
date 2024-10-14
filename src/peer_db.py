@@ -15,7 +15,7 @@ def load_peers() -> Set[Peer]:
         with open(PEER_DB_FILE, 'r') as f:
             f.readline()    #ignore the first line
             for line in f:
-                host, port = line.strip().split(":")
+                host, port = line.strip().split(",")
                 peers.add(Peer(host, int(port)))
     except FileNotFoundError:
         # If the file doesn't exist, return an empty set
