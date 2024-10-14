@@ -1,6 +1,6 @@
 from Peer import Peer
 
-MODE_NAME = "GajdakCoin"
+NODE_NAME = "GajdakCoin"
 PORT = 18018
 ADDRESS = "0.0.0.0"
 SERVICE_LOOP_DELAY = 10
@@ -8,6 +8,8 @@ VERSION = '0.10.0'
 AGENT = ''
 LOW_CONNECTION_THRESHOLD = 3
 HELLO_MSG_TIMEOUT = 20.0
+HELLO_VERSION = "0.10."
+HELLO_AGENT_MAX_LEN = 128
 DB_NAME = 'db.db'
 RECV_BUFFER_LIMIT = 512 * 1024
 BLOCK_TARGET = ""
@@ -34,4 +36,6 @@ BANNED_HOSTS = [
 
 PRELOADED_PEERS = {
     Peer("128.130.122.101", 18018), # lecturers node
+    #Peer("10.250.84.252", 18019), # test node 1
+    #Peer("10.250.84.252", 18020), # test node 2
 }
