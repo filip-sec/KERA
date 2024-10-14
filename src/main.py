@@ -355,6 +355,10 @@ async def handle_connection(reader, writer):
         # Send your hello message
         await write_msg(writer, mk_hello_msg())
         print(f"Sent 'hello' message to {peer}")
+        
+        #send getpeers message
+        await write_msg(writer, mk_getpeers_msg())
+        print(f"Sent 'getpeers' message to {peer}")
 
         # Set a timeout for receiving the first "hello" message (20 seconds)
         while True:
@@ -366,7 +370,7 @@ async def handle_connection(reader, writer):
 
                 buffer += data.decode('utf-8')
                 
-                print(f'Buffer: {buffer}')
+                #print(f'Buffer: {buffer}')
 
                 # Process all complete messages (separated by '\n')
                 while '\n' in buffer:
@@ -431,9 +435,6 @@ async def handle_message(msg_dict, writer, peer):
     elif msg_type == 'peers':
         handle_peers_msg(msg_dict)
         print(f"Received peers list from {peer}.")
-    elif msg_type == 'getchaintip':
-        await write_msg(writer, mk_chaintip_msg(get_chaintip_blockid()))
-        print(f"Received 'getchaintip' request from {peer}")
     else:
         print(f"Unknown message type received from {peer}: {msg_dict['type']}")
 
@@ -448,8 +449,6 @@ async def connect_to_node(peer: Peer):
     except Exception as e:
         print(str(e))
         return
-    
-    print(f"OALAAA Connected to {peer}")
 
     await handle_connection(reader, writer)
 
