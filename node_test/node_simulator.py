@@ -15,22 +15,30 @@ async def read_messages(reader):
             logging.info("Connection closed by client.")
             break
 
-        message = data.decode('utf-8')
-        logging.info(f"Received message: {message}")
+        # The incoming data might contain multiple messages
+        messages = data.decode('utf-8').split("\n")
+        for message in messages:
+            if message.strip():  # Ignore empty lines
+                logging.info(f"\n\nReceived message: {message}\n\n")
+                # Process the received message as JSON
+                try:
+                    msg_dict = json.loads(message)
+                    #logging.info(f"Parsed JSON: {msg_dict}")
+                except json.JSONDecodeError:
+                    logging.error("Received an invalid JSON message.")
 
-        # Process the received message as JSON
-        try:
-            msg_dict = json.loads(message)
-            logging.info(f"Parsed JSON: {msg_dict}")
-        except json.JSONDecodeError:
-            logging.error("Received an invalid JSON message.")
+async def async_input(prompt: str) -> str:
+    """Asynchronous wrapper for input using a thread to avoid blocking the event loop."""
+    return await asyncio.to_thread(input, prompt)
 
 async def send_messages(writer):
     while True:
         print("Choose a response to send back:")
         print("1: Hello response")
         print("2: Get peers response")
-        choice = input("Enter 1 or 2: ")
+        
+        # Use async_input to avoid blocking the event loop
+        choice = await async_input("Enter 1 or 2: ")
 
         if choice == "1":
             response = {
@@ -51,12 +59,14 @@ async def send_messages(writer):
         # Send response back to the client
         writer.write(response_json.encode('utf-8'))
         await writer.drain()  # Ensure the data is sent
-        #logging.info(f"Sent response: {response_json.strip()}")
+        logging.info(f"Sent response: {response_json.strip()}")
 
 async def handle_client(reader, writer):
+    # Run both reading and sending tasks in parallel
     read_task = asyncio.create_task(read_messages(reader))
     send_task = asyncio.create_task(send_messages(writer))
 
+    # Wait for both tasks to finish (they will run indefinitely until the connection closes)
     await asyncio.gather(read_task, send_task)
 
     logging.info("Closing the connection.")
