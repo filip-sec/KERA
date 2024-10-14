@@ -202,16 +202,19 @@ def validate_peers_msg(msg_dict):
     
     if msg_dict.get("type") != "peers":
         raise MalformedMsgException("Invalid 'peers' message type.")
-    
+
     peers_list = msg_dict.get("peers")
     if not isinstance(peers_list, list) or len(peers_list) > 30:
         raise MalformedMsgException("Invalid 'peers' list.")
     
+    
     for peer in peers_list:
-        peer_host, peer_port = peer
+        peer_host, peer_port = peer.split(':')
+        peer_port = int(peer_port)
+        
         if not Peer.validate_peer(peer_host, peer_port):
             raise MalformedMsgException(f"Invalid peer format: {peer}")
-        
+    
 
 
 # Validate the 'getpeers' message
@@ -434,7 +437,7 @@ async def handle_connection(reader, writer):
                                 
                                 received_hello = True
                                 add_connection(peer, queue)
-                                print(f"Handshake complete with {peer}. Received 'hello'.")
+                                print(f"Handshake complete with {peer}.")
                             else:
                                 await handle_message(msg_dict, writer, peer)
 
@@ -469,15 +472,15 @@ async def handle_message(msg_dict, writer, peer):
     msg_type = msg_dict['type']
     if msg_type == 'hello':
         raise MessageException("Received 'hello' message after handshake.")
-    if msg_type == 'getpeers':
+    elif msg_type == 'getpeers':
         print(f"Received 'getpeers' request from {peer}")
         # Create and send the peers message
         peers_msg = mk_peers_msg()
         await write_msg(writer, peers_msg)
         print(f"Sent 'peers' message to {peer}")
     elif msg_type == 'peers':
+        print(f"Received 'peers' message from {peer}")
         handle_peers_msg(msg_dict)
-        print(f"Received peers list from {peer}.")
     else:
         print(f"Unknown message type received from {peer}: {msg_dict['type']}")
 
@@ -546,7 +549,7 @@ async def init():
         print("Open connections: {}".format(set(CONNECTIONS.keys())))
 
         # Open more connections if necessary
-        await resupply_connections()  # Ensure that this async function is awaited
+        #await resupply_connections()  # Ensure that this async function is awaited
 
         # Delay between service loop iterations
         await asyncio.sleep(const.SERVICE_LOOP_DELAY)

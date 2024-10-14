@@ -36,9 +36,10 @@ async def send_messages(writer):
         print("Choose a response to send back:")
         print("1: Hello response")
         print("2: Get peers response")
+        print("3: Peers response")
         
         # Use async_input to avoid blocking the event loop
-        choice = await async_input("Enter 1 or 2: ")
+        choice = await async_input("Enter number: ")
 
         if choice == "1":
             response = {
@@ -50,8 +51,16 @@ async def send_messages(writer):
             response = {
                 "type": "getpeers",
             }
+        elif choice == "3":
+            response = {
+                "type": "peers",
+                "peers": [
+                    "127.0.0.1:18018",
+                    "192.168.1.5:18018"
+                ]
+            }
         else:
-            print("Invalid choice. Please enter 1 or 2.")
+            print("Invalid choice.")
             continue
 
         response_json = json.dumps(response) + "\n"  # Add newline for completeness
