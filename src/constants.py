@@ -37,4 +37,5 @@ BANNED_HOSTS = [
 PRELOADED_PEERS = {
     #Peer("128.130.122.101", 18018), # lecturers node
     Peer("10.250.84.252", 18019),
+    #Peer("10.250.84.252", 18020),
 }

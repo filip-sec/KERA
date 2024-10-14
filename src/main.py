@@ -448,6 +448,8 @@ async def connect_to_node(peer: Peer):
     except Exception as e:
         print(str(e))
         return
+    
+    print(f"OALAAA Connected to {peer}")
 
     await handle_connection(reader, writer)
 
@@ -497,7 +499,7 @@ async def init():
         print("Open connections: {}".format(set(CONNECTIONS.keys())))
 
         # Open more connections if necessary
-        #await resupply_connections()  # Ensure that this async function is awaited
+        await resupply_connections()  # Ensure that this async function is awaited
 
         # Delay between service loop iterations
         await asyncio.sleep(const.SERVICE_LOOP_DELAY)
