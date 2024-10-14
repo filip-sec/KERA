@@ -27,10 +27,6 @@ LISTEN_CFG = {
         "port": const.PORT
 }
 
-hardcoded_peers = [
-    Peer("128.130.122.101", 18018)
-]
-
 # Add peer to your list of peers
 def add_peer(peer):
     try:
@@ -319,41 +315,61 @@ async def handle_connection(reader, writer):
         if not peer:
             raise Exception("Failed to get peername!")
 
-        print("New connection with {}".format(peer))
+        print(f"New connection with {peer}")
 
-        # Send hello message after connection is established
-        await write_msg(writer, mk_hello_msg())  # Send your hello message
+        # Send the "hello" message
+        await write_msg(writer, mk_hello_msg())
+        print(f"Sent 'hello' message to {peer}")
 
-        # Immediately after sending your hello message, send the getpeers message
-        await write_msg(writer, mk_getpeers_msg())  # Send getpeers message
-        
-    except Exception as e:
-        print(str(e))
+        # Wait to receive the "hello" message from the peer
+        msg_str = await asyncio.wait_for(reader.readline(), timeout=20.0)
+        msg_dict = parse_msg(msg_str)
+        if msg_dict['type'] != 'hello':
+            raise MessageException("First message must be 'hello'")
+        validate_hello_msg(msg_dict)
+        add_connection(peer, queue)
+        print(f"Handshake complete with {peer}. Received 'hello'.")
+
+        # Now, after receiving the 'hello' message, send the "getpeers" message
+        #await write_msg(writer, mk_getpeers_msg())
+        #print(f"Sent 'getpeers' message to {peer}")
+
+    except asyncio.TimeoutError:
+        print(f"Timeout waiting for 'hello' message from {peer}. Closing connection.")
         try:
-            writer.close()
+            await write_msg(writer, mk_error_msg("Timeout", "No hello message received in time"))
         except:
             pass
+        writer.close()
+        return
+    except MessageException as e:
+        print(f"Error during handshake with {peer}: {str(e)}")
+        try:
+            await write_msg(writer, mk_error_msg("INVALID_HANDSHAKE", str(e)))
+        except:
+            pass
+        writer.close()
+        return
+    except Exception as e:
+        print(f"Exception: {str(e)}")
+        writer.close()
         return
 
+    # Enter the main message loop
     try:
-        # Send initial messages (already sent hello and getpeers)
-        # Complete handshake
-
-        msg_str = None
+        print(f"Entering message loop with {peer}")
         while True:
             if read_task is None:
                 read_task = asyncio.create_task(reader.readline())
             if queue_task is None:
                 queue_task = asyncio.create_task(queue.get())
 
-            # wait for network or queue messages
-            done, pending = await asyncio.wait([read_task, queue_task],
-                                               return_when=asyncio.FIRST_COMPLETED)
+            # Wait for network or queue messages
+            done, pending = await asyncio.wait([read_task, queue_task], return_when=asyncio.FIRST_COMPLETED)
             if read_task in done:
                 msg_str = read_task.result()
                 read_task = None
 
-            # handle queue messages
             if queue_task in done:
                 queue_msg = queue_task.result()
                 queue_task = None
@@ -361,59 +377,38 @@ async def handle_connection(reader, writer):
                 queue.task_done()
 
             # Handle empty message (peer closed connection)
-            if msg_str == b'':  # Peer closed connection
+            if msg_str == b'':
                 print(f"{peer}: Connection closed by peer.")
                 break  # Exit the loop and close the connection
 
-            print(f"Received: {msg_str}")
             # Parse and handle the received message
             msg_dict = parse_msg(msg_str)
-
-            # Handle the message based on its type
-            if msg_dict['type'] == 'hello':
-                validate_hello_msg(msg_dict)
-                print(f"Handshake complete with {peer}. Received hello.")
-
-            elif msg_dict['type'] == 'getpeers':
-                print(f"Received getpeers request from {peer}")
-                await write_msg(writer, mk_peers_msg())
             
-            elif msg_dict['type'] == 'getchaintip':
-                print(f"Received getchaintip request from {peer}")
-                await write_msg(writer, mk_chaintip_msg(get_chaintip_blockid()))
+            print(f"Received message from {peer}: {msg_dict}")
 
+            if msg_dict['type'] == 'getpeers':
+                print(f"Received 'getpeers' request from {peer}")
+                await write_msg(writer, mk_peers_msg())
             elif msg_dict['type'] == 'peers':
-                handle_peers_msg(msg_dict)  # Handle peers message and update peer list
-                print(f"Received peers from {peer}.")
-
+                handle_peers_msg(msg_dict)
+                print(f"Received peers list from {peer}.")
+            elif msg_dict['type'] == 'getchaintip':
+                await write_msg(writer, mk_chaintip_msg(get_chaintip_blockid()))
+                print(f"Received 'getchaintip' request from {peer}")
             else:
                 print(f"Unknown message type received from {peer}: {msg_dict['type']}")
             
-            # Now that we handled the message, don't raise an exception to close the connection
-            # For now, let's continue handling future messages
-
-    except asyncio.exceptions.TimeoutError:
-        print("{}: Timeout".format(peer))
-        try:
-            await write_msg(writer, mk_error_msg("Timeout", "TIMEOUT_ERROR"))
-        except:
-            pass
-    except MessageException as e:
-        print("{}: {}".format(peer, str(e)))
-        try:
-            await write_msg(writer, mk_error_msg(e.NETWORK_ERROR_MESSAGE, "NETWORK_ERROR"))
-        except:
-            pass
     except Exception as e:
-        print("{}: {}".format(peer, str(e)))
+        print(f"Exception in message handling: {str(e)}")
     finally:
-        print("Closing connection with {}".format(peer))
+        print(f"Closing connection with {peer}")
         writer.close()
         del_connection(peer)
         if read_task is not None and not read_task.done():
             read_task.cancel()
         if queue_task is not None and not queue_task.done():
             queue_task.cancel()
+
 
 
 
@@ -440,13 +435,12 @@ async def listen():
 
 # bootstrap peers. connect to hardcoded peers
 async def bootstrap():
-
-    for peer in hardcoded_peers:
+    for peer in const.PRELOADED_PEERS:
         await connect_to_node(peer)    
 
 # connect to some peers
 async def resupply_connections():
-    for peer in hardcoded_peers:
+    for peer in const.PRELOADED_PEERS:
         if peer not in CONNECTIONS:  # If no active connection, create one
             print(f"Connecting to peer: {peer}")
             try:
@@ -474,7 +468,7 @@ async def init():
         print("Open connections: {}".format(set(CONNECTIONS.keys())))
 
         # Open more connections if necessary
-        await resupply_connections()  # Ensure that this async function is awaited
+        #await resupply_connections()  # Ensure that this async function is awaited
 
         # Delay between service loop iterations
         await asyncio.sleep(const.SERVICE_LOOP_DELAY)

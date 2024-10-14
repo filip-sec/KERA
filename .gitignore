@@ -1,7 +1,6 @@
-*/__pycache__
-*/message/__pycache__
+__pycache__/
 *.swp
 .vscode/
 peers.csv
 .DS_Store
-*/env
+env/
