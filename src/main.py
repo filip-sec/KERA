@@ -30,14 +30,17 @@ LISTEN_CFG = {
 # Add peer to your list of peers
 def add_peer(peer):
     try:
-            if not validate_peer_str(peer):  
+            peer_host, peer_port = peer
+            if not Peer.validate_peer(peer_host, peer_port):
                 print(f"Invalid peer format: {peer}")
                 return
-            if peer in PEERS:
-                print(f"Peer {peer} is already known.")
+            new_peer = Peer(peer_host, peer_port)
+            if new_peer in PEERS:
+                print(f"Peer {new_peer} is already known.")
             else:
-                PEERS.add(peer)
-                print(f"New peer {peer} added to the list.")
+                peer_db.store_peer(new_peer, PEERS)
+                PEERS.add(new_peer)
+                print(f"New peer {new_peer} added to the list.")
     except Exception as e:
             print(f"Failed to add peer {peer}: {str(e)}")
 
@@ -351,6 +354,7 @@ async def handle_connection(reader, writer):
             raise Exception("Failed to get peername!")
 
         print(f"New connection with {peer}")
+        add_peer(peer)
 
         # Send your hello message
         await write_msg(writer, mk_hello_msg())
@@ -465,6 +469,11 @@ async def listen():
 
 # bootstrap peers. connect to hardcoded peers
 async def bootstrap():
+    
+    # Load peers from the database
+    global PEERS
+    PEERS = peer_db.load_peers()
+    
     for peer in const.PRELOADED_PEERS:
         await connect_to_node(peer)    
 

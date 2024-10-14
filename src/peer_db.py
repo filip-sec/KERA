@@ -10,5 +10,14 @@ def store_peer(peer: Peer, existing_peers: Iterable[Peer] = set()):
             f.write(f"{peer.host}:{peer.port}\n")
             
 def load_peers() -> Set[Peer]:
-    # read from file
-    pass
+    peers = set()
+    try:
+        with open(PEER_DB_FILE, 'r') as f:
+            f.readline()    #ignore the first line
+            for line in f:
+                host, port = line.strip().split(":")
+                peers.add(Peer(host, int(port)))
+    except FileNotFoundError:
+        # If the file doesn't exist, return an empty set
+        pass
+    return peers
