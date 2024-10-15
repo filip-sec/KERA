@@ -65,8 +65,8 @@ def mk_error_msg(error_name, error_str):
 def mk_hello_msg():
     return{
         "type": "hello",
-        "version": "0.10.0",
-        "agent": "Kerma-Core Client 0.10"
+        "version": const.VERSION,
+        "agent": const.AGENT
     }
     
 
@@ -132,7 +132,7 @@ def parse_msg(msg_str):
         msg_dict = json.loads(msg_str)
         return msg_dict
     except json.JSONDecodeError:
-        raise MessageException("Invalid JSON format")
+        raise MalformedMsgException("Invalid JSON format")
 
 # Send data over the network as a message
 async def write_msg(writer, msg_dict):
@@ -401,8 +401,8 @@ async def handle_connection(reader, writer):
         print(f"Sent 'hello' message to {peer}")
         
         #send getpeers message
-        await write_msg(writer, mk_getpeers_msg())
-        print(f"Sent 'getpeers' message to {peer}")
+        #await write_msg(writer, mk_getpeers_msg())
+        #print(f"Sent 'getpeers' message to {peer}")
 
         # Set a timeout for receiving the first "hello" message (20 seconds)
         while True:
