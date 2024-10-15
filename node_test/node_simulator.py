@@ -55,7 +55,7 @@ async def send_messages(writer):
             response = {
                 "type": "peers",
                 "peers": [
-                    "127.0.0.1:18018",
+                    "192.169.5.3:18018",
                     "192.168.1.5:18018"
                 ]
             }
