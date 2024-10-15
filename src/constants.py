@@ -1,11 +1,11 @@
 from Peer import Peer
 
-NODE_NAME = "GajdakCoin"
+NODE_NAME = "Gajdak"
 PORT = 18018
 ADDRESS = "0.0.0.0"
-SERVICE_LOOP_DELAY = 10
+SERVICE_LOOP_DELAY = 100
 VERSION = '0.10.0'
-AGENT = ''
+AGENT = 'Kerma-Core Client Gajdak'
 LOW_CONNECTION_THRESHOLD = 3
 HELLO_MSG_TIMEOUT = 20.0
 HELLO_VERSION = "0.10."
@@ -35,7 +35,7 @@ BANNED_HOSTS = [
 ]
 
 PRELOADED_PEERS = {
-    Peer("128.130.122.101", 18018), # lecturers node
-    #Peer("10.250.84.252", 18019), # test node 1
+    #Peer("128.130.122.101", 18018), # lecturers node
+    Peer("127.0.0.1", 18019), # test node 1
     #Peer("10.250.84.252", 18020), # test node 2
 }
