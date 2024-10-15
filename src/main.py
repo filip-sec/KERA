@@ -401,8 +401,8 @@ async def handle_connection(reader, writer):
         print(f"Sent 'hello' message to {peer}")
         
         #send getpeers message
-        #await write_msg(writer, mk_getpeers_msg())
-        #print(f"Sent 'getpeers' message to {peer}")
+        await write_msg(writer, mk_getpeers_msg())
+        print(f"Sent 'getpeers' message to {peer}")
 
         # Set a timeout for receiving the first "hello" message (20 seconds)
         while True:
@@ -580,7 +580,7 @@ async def init():
         print("Open connections: {}".format(set(CONNECTIONS.keys())))
         
         # Open more connections if necessary
-        #resupply_connections()
+        resupply_connections()
 
         # Delay between service loop iterations
         await asyncio.sleep(const.SERVICE_LOOP_DELAY)

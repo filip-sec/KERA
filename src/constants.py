@@ -3,7 +3,7 @@ from Peer import Peer
 NODE_NAME = "Gajdak"
 PORT = 18018
 ADDRESS = "0.0.0.0"
-SERVICE_LOOP_DELAY = 100
+SERVICE_LOOP_DELAY = 10
 VERSION = '0.10.0'
 AGENT = 'Kerma-Core Client Gajdak'
 LOW_CONNECTION_THRESHOLD = 3
@@ -35,7 +35,7 @@ BANNED_HOSTS = [
 ]
 
 PRELOADED_PEERS = {
-    #Peer("128.130.122.101", 18018), # lecturers node
-    Peer("127.0.0.1", 18019), # test node 1
+    Peer("128.130.122.101", 18018), # lecturers node
+    #Peer("127.0.0.1", 18019), # test node 1
     #Peer("10.250.84.252", 18020), # test node 2
 }
