@@ -259,7 +259,13 @@ def validate_mempool_msg(msg_dict):
     pass # todo
         
 def validate_msg(msg_dict):
+    
+    # Check for missing type key
+    if 'type' not in msg_dict.keys():
+        raise MalformedMsgException(f"Missing required key 'type' in message.")
+        
     msg_type = msg_dict['type']
+    
     if msg_type == 'hello':
         validate_hello_msg(msg_dict)
     elif msg_type == 'getpeers':
@@ -283,7 +289,8 @@ def validate_msg(msg_dict):
     elif msg_type == 'mempool':
         validate_mempool_msg(msg_dict)
     else:
-        pass # TODO
+        raise MalformedMsgException(f"Unknown message type: {msg_type}")
+        
 
 
 def handle_peers_msg(msg_dict):
@@ -580,7 +587,7 @@ async def init():
         print("Open connections: {}".format(set(CONNECTIONS.keys())))
         
         # Open more connections if necessary
-        resupply_connections()
+        #resupply_connections()
 
         # Delay between service loop iterations
         await asyncio.sleep(const.SERVICE_LOOP_DELAY)
