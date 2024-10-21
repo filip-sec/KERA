@@ -263,6 +263,10 @@ def validate_msg(msg_dict):
     # Check for missing type key
     if 'type' not in msg_dict.keys():
         raise MalformedMsgException(f"Missing required key 'type' in message.")
+    
+    #Check if type is a string
+    if not isinstance(msg_dict['type'], str):
+        raise MalformedMsgException(f"Invalid 'type' key in message (not a string).")
         
     msg_type = msg_dict['type']
     
