@@ -1,7 +1,6 @@
 from Peer import Peer
 from typing import Iterable, Set
-
-PEER_DB_FILE = "peers.csv"
+from constants import PEER_DB_FILE
 
 def store_peer(peer: Peer, existing_peers: Iterable[Peer] = set()):
     # Append the new peer to the file if it's not in the existing set

@@ -17,6 +17,7 @@ import sys
 
 PEERS = set()
 CONNECTIONS = dict()
+PENDING_PEERS = set()
 BACKGROUND_TASKS = set()
 BLOCK_VERIFY_TASKS = dict()
 BLOCK_WAIT_LOCK = None
@@ -34,8 +35,9 @@ def add_peer(peer_host, peer_port):
                 print(f"Invalid peer format: {peer_host}:{peer_port}")
                 return
             new_peer = Peer(peer_host, peer_port)
-            if new_peer in PEERS:
-                print(f"Peer {new_peer} is already known.")
+            if new_peer in PEERS or new_peer.host == '127.0.0.1':
+                #print(f"Peer {new_peer} is already known.")
+                return
             else:
                 peer_db.store_peer(new_peer, PEERS)
                 PEERS.add(new_peer)
@@ -45,6 +47,7 @@ def add_peer(peer_host, peer_port):
 
 # Add connection if not already open
 def add_connection(peer, queue):
+    PENDING_PEERS.discard(peer)
     if peer not in CONNECTIONS:
         CONNECTIONS[peer] = queue 
 
@@ -144,7 +147,7 @@ async def write_msg(writer, msg_dict):
         writer.write(msg_bytes)
         await writer.drain()
     except Exception as e:
-        print(f"Filed to send message: {str(e)}")
+        print(f"Failed to send message: {str(e)}")
 
 def validate_keys(msg_dict, required_keys, optional_keys, msg_type):
     """
@@ -457,6 +460,7 @@ async def handle_connection(reader, writer):
                             error_message = mk_error_msg(error_name, str(e))
                             await write_msg(writer, error_message)
                             print(f"Error: {str(e)}")
+                            PENDING_PEERS.discard(peer)
                             return  # Close connection on error
                         
                         except MessageException as e:
@@ -464,13 +468,20 @@ async def handle_connection(reader, writer):
                             error_message = mk_error_msg(error_name, str(e))
                             await write_msg(writer, error_message)
                             print(f"Error: {str(e)}")
+                            PENDING_PEERS.discard(peer)
                             return # Close connection on error
 
             except asyncio.TimeoutError:
                 if not received_hello:
                     print(f"Timeout waiting for 'hello' message from {peer}.")
                     await write_msg(writer, mk_error_msg("INVALID_HANDSHAKE", "Timeout waiting for 'hello' message"))
+                    PENDING_PEERS.discard(peer)
                     return # Close connection on error
+                
+            except Exception as e:
+                print(f"Connection error with {peer}: {str(e)}")
+                PENDING_PEERS.discard(peer)
+                return  # Close connection on error
 
     finally:
         print(f"Closing connection with {peer}")
@@ -527,8 +538,11 @@ async def bootstrap():
     global PEERS
     PEERS = peer_db.load_peers()
     
-    for peer in const.PRELOADED_PEERS | PEERS:
+    ALL_PEERS = PEERS.union(const.PRELOADED_PEERS)
+    
+    for peer in ALL_PEERS:
         try:
+            PENDING_PEERS.add(peer)
             await connect_to_node(peer)
         except Exception as e:
             print(f"Failed to connect to {peer}: {str(e)}")  
@@ -545,26 +559,28 @@ def resupply_connections():
 
     # Only resupply if below the threshold
     if current_connections >= low_connection_threshold:
-        print(f"Current connections ({current_connections}) meet or exceed the threshold ({low_connection_threshold}). No action needed.")
+        #print(f"Current connections ({current_connections}) meet or exceed the threshold ({low_connection_threshold}). No action needed.")
         return
 
     # Calculate how many more connections are needed
-    needed_connections = low_connection_threshold - current_connections
+    needed_connections = low_connection_threshold - current_connections + 10 # Add a buffer of 10 connections
     print(f"Currently have {current_connections} connections, trying to add {needed_connections} more connections.")
 
     # Randomize the list of known peers and attempt to connect to fill the gap
     known_peers = list(PEERS.union(const.PRELOADED_PEERS))  # Combine known and preloaded peers
     random.shuffle(known_peers)
+    
+    attempted_connections = 0
 
     # Start connection attempts to meet the threshold
     for peer in known_peers:
-        if peer not in CONNECTIONS:
+        if peer not in CONNECTIONS and (peer not in PENDING_PEERS):
             print(f"Attempting to connect to peer: {peer}")
             try:
                 # Start connection attempt as a background task
                 asyncio.create_task(connect_to_node(peer))  # No await, scheduling connection
-                current_connections += 1
-                if current_connections >= low_connection_threshold:
+                attempted_connections += 1
+                if attempted_connections >= needed_connections:
                     print(f"Connection threshold reached with {current_connections} connections.")
                     break  # Stop once the threshold is met
             except Exception as e:
@@ -584,14 +600,17 @@ async def init():
     bootstrap_task = asyncio.create_task(bootstrap())
     listen_task = asyncio.create_task(listen())
     
-
+    # sleep to allow the listen task to start
+    await asyncio.sleep(2)
+    
+    
     # Service loop
     while True:
         print("Service loop reporting in.")
         print("Open connections: {}".format(set(CONNECTIONS.keys())))
         
         # Open more connections if necessary
-        #resupply_connections()
+        resupply_connections()
 
         # Delay between service loop iterations
         await asyncio.sleep(const.SERVICE_LOOP_DELAY)
