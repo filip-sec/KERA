@@ -31,17 +31,35 @@ LISTEN_CFG = {
 # Add peer to your list of peers
 def add_peer(peer_host, peer_port):
     try:
-            if not Peer.validate_peer(peer_host, peer_port):
-                print(f"Invalid peer format: {peer_host}:{peer_port}")
+        if not Peer.validate_peer(peer_host, peer_port):
+            print(f"Invalid peer format: {peer_host}:{peer_port}")
+            return
+        new_peer = Peer(peer_host, peer_port)
+        
+        # Do not add banned peer addresses
+        if new_peer.host in const.BANNED_PEERS:
+            print(f"Peer {new_peer} is banned.")
+            return
+            
+        # Do not add loopback or multicast addresses
+        try:
+            # Try to interpret the host as an IP address
+            ip = ipaddress.ip_address(new_peer.host)
+            # Check if the IP address is loopback or multicast
+            if ip.is_loopback or ip.is_multicast:
+                print(f"Peer {new_peer} is a loopback or multicast address.")
                 return
-            new_peer = Peer(peer_host, peer_port)
-            if new_peer in PEERS or new_peer.host == '127.0.0.1':
-                #print(f"Peer {new_peer} is already known.")
-                return
-            else:
-                peer_db.store_peer(new_peer, PEERS)
-                PEERS.add(new_peer)
-                print(f"New peer {new_peer} added to the list.")
+        except ValueError:
+            # If it's not an IP address, just continue
+            pass
+            
+        if new_peer in PEERS:
+            print(f"Peer {new_peer} is already known.")
+            return
+        else:
+            peer_db.store_peer(new_peer, PEERS)
+            PEERS.add(new_peer)
+            print(f"New peer {new_peer} added to the list.")
     except Exception as e:
             print(f"Failed to add peer {peer_host}:{peer_port}: {str(e)}")
 
