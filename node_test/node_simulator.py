@@ -8,11 +8,16 @@ PORT = 18019  # Port to listen on
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 
-async def read_messages(reader):
+async def read_messages(reader,writer):
     while True:
         data = await reader.read(100)  # Read up to 100 bytes
         if not data:
             logging.info("Connection closed by client.")
+            
+            # Close the TCP port
+            writer.close()
+            await writer.wait_closed()
+            
             break
 
         # The incoming data might contain multiple messages
@@ -85,7 +90,7 @@ async def send_messages(writer):
 
 async def handle_client(reader, writer):
     # Run both reading and sending tasks in parallel
-    read_task = asyncio.create_task(read_messages(reader))
+    read_task = asyncio.create_task(read_messages(reader,writer))
     send_task = asyncio.create_task(send_messages(writer))
 
     # Wait for both tasks to finish (they will run indefinitely until the connection closes)

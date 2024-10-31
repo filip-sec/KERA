@@ -37,7 +37,7 @@ def add_peer(peer_host, peer_port):
         new_peer = Peer(peer_host, peer_port)
         
         # Do not add banned peer addresses
-        if new_peer.host in const.BANNED_PEERS:
+        if new_peer.host in const.BANNED_HOSTS:
             print(f"Peer {new_peer} is banned.")
             return
             
@@ -65,14 +65,19 @@ def add_peer(peer_host, peer_port):
 
 # Add connection if not already open
 def add_connection(peer, queue):
-    PENDING_PEERS.discard(peer)
-    if peer not in CONNECTIONS:
-        CONNECTIONS[peer] = queue 
+    ip, port = peer
+
+    p = Peer(ip, port)
+    if p in CONNECTIONS:
+        raise Exception("Connection with {} already open!".format(peer))
+
+    CONNECTIONS[p] = queue
+
 
 # Delete connection
 def del_connection(peer):
-    if peer in CONNECTIONS:
-        del CONNECTIONS[peer]
+    ip, port = peer
+    del CONNECTIONS[Peer(ip, port)]
 
 # Error message generator
 def mk_error_msg(error_name, error_str):
@@ -229,11 +234,19 @@ def validate_peers_msg(msg_dict):
         raise MalformedMsgException("Invalid 'peers' list.")
     
     
+    # Validate each peer in the list
     for peer in peers_list:
-        peer_host, peer_port = peer.split(':')
-        peer_port = int(peer_port)
-        
-        if not Peer.validate_peer(peer_host, peer_port):
+        # Ensure each peer entry has the correct format with host:port
+        try:
+            peer_host, peer_port = peer.split(':')
+            peer_port = int(peer_port)  # Convert port to integer
+            
+            # Use Peer class to validate format
+            if not Peer.validate_peer(peer_host, peer_port):
+                raise ValueError  # Invalid format if not validated by Peer.validate_peer
+            
+        except (ValueError, AttributeError):
+            # Raise error if any peer entry is malformed
             raise MalformedMsgException(f"Invalid peer format: {peer}")
     
 
@@ -412,99 +425,96 @@ async def handle_mempool_msg(msg_dict):
 async def handle_queue_msg(msg_dict, writer):
     pass # TODO
 
-# Handle incoming connections
 async def handle_connection(reader, writer):
-    buffer = ""  # Buffer to accumulate incomplete messages
+    read_task = None
+    queue_task = None
     peer = None
     queue = asyncio.Queue()
-    received_hello = False  # Track if the hello message has been received
 
     try:
         peer = writer.get_extra_info('peername')
         if not peer:
             raise Exception("Failed to get peername!")
-
+        
+        
+        add_connection(peer, queue)
+        
         print(f"New connection with {peer}")
-        peer_host, peer_port = peer
-        add_peer(peer_host, peer_port)
+        
 
-        # Send your hello message
+        # Send initial hello and getpeers messages
         await write_msg(writer, mk_hello_msg())
         print(f"Sent 'hello' message to {peer}")
         
-        #send getpeers message
         await write_msg(writer, mk_getpeers_msg())
         print(f"Sent 'getpeers' message to {peer}")
 
-        # Set a timeout for receiving the first "hello" message (20 seconds)
+        # Start processing with the initial handshake
+        first_msg = await asyncio.wait_for(reader.readline(), timeout=const.HELLO_MSG_TIMEOUT)
+        first_msg_dict = parse_msg(first_msg)
+        validate_msg(first_msg_dict)
+        
+        if first_msg_dict['type'] != 'hello':
+            raise MessageException("First message is not 'hello'")
+
+        print(f"Handshake complete with {peer}")
+        
+        msg_str = None
+
         while True:
+            # Set up tasks to read from network and queue
+            if read_task is None:
+                read_task = asyncio.create_task(reader.readline())
+            if queue_task is None:
+                queue_task = asyncio.create_task(queue.get())
+
+            done, pending = await asyncio.wait([read_task, queue_task], return_when=asyncio.FIRST_COMPLETED)
+
+            # Process network message if available
+            if read_task in done:
+                msg_str = read_task.result()
+                read_task = None  # Reset for next read
+                
+            # Process queue message if available
+            if queue_task in done:
+                queue_msg = queue_task.result()
+                queue_task = None
+                await handle_queue_msg(queue_msg, writer)
+                queue.task_done()
+                
+            # if no message was received over the network continue
+            if read_task is not None:
+                continue
+            
             try:
-                data = await asyncio.wait_for(reader.read(const.RECV_BUFFER_LIMIT), timeout=20.0)
-                if not data:  # Peer closed connection
-                    print(f"{peer}: Connection closed by peer.")
-                    break
-
-                buffer += data.decode('utf-8')
+                msg_dict = parse_msg(msg_str)
+                validate_msg(msg_dict)
+                await handle_message(msg_dict, writer, peer)
                 
-                #print(f'Buffer: {buffer}')
+            
+            except MalformedMsgException as e:
+                await write_msg(writer, mk_error_msg("INVALID_FORMAT", str(e)))
+                print(f"Malformed message from {peer}: {e}")
+                break
 
-                # Process all complete messages (separated by '\n')
-                while '\n' in buffer:
-                    msg_str, buffer = buffer.split('\n', 1)
-                    msg_str = msg_str.strip()
+            except MessageException as e:
+                await write_msg(writer, mk_error_msg("INVALID_HANDSHAKE", str(e)))
+                print(f"Handshake error with {peer}: {e}")
+                break
 
-                    if msg_str:  # Ignore empty messages
-                        print(f"Received raw message: {msg_str}")
-                        try:
-                            msg_dict = parse_msg(msg_str)
-                            validate_msg(msg_dict)  # Validate using validate_msg function
-
-                            if not received_hello:
-                                if msg_dict.get('type') != 'hello':
-                                    print(f"First message from {peer} is not 'hello'. Closing connection.")
-                                    await write_msg(writer, mk_error_msg("INVALID_HANDSHAKE", "First message is not 'hello'"))
-                                    writer.close()
-                                    del_connection(peer)
-                                    return
-                                
-                                received_hello = True
-                                add_connection(peer, queue)
-                                print(f"Handshake complete with {peer}.")
-                            else:
-                                await handle_message(msg_dict, writer, peer)
-
-                        except MalformedMsgException as e:
-                            error_name = "INVALID_FORMAT"
-                            error_message = mk_error_msg(error_name, str(e))
-                            await write_msg(writer, error_message)
-                            print(f"Error: {str(e)}")
-                            PENDING_PEERS.discard(peer)
-                            return  # Close connection on error
-                        
-                        except MessageException as e:
-                            error_name = "INVALID_HANDSHAKE"
-                            error_message = mk_error_msg(error_name, str(e))
-                            await write_msg(writer, error_message)
-                            print(f"Error: {str(e)}")
-                            PENDING_PEERS.discard(peer)
-                            return # Close connection on error
-
-            except asyncio.TimeoutError:
-                if not received_hello:
-                    print(f"Timeout waiting for 'hello' message from {peer}.")
-                    await write_msg(writer, mk_error_msg("INVALID_HANDSHAKE", "Timeout waiting for 'hello' message"))
-                    PENDING_PEERS.discard(peer)
-                    return # Close connection on error
                 
-            except Exception as e:
-                print(f"Connection error with {peer}: {str(e)}")
-                PENDING_PEERS.discard(peer)
-                return  # Close connection on error
+    except asyncio.TimeoutError:
+        await write_msg(writer, mk_error_msg("INVALID_HANDSHAKE", "Timeout waiting for 'hello' message"))
+        print(f"Timeout waiting for handshake with {peer}")
 
     finally:
         print(f"Closing connection with {peer}")
         writer.close()
         del_connection(peer)
+        if read_task is not None and not read_task.done():
+            read_task.cancel()
+        if queue_task is not None and not queue_task.done():
+            queue_task.cancel()
 
 
 async def handle_message(msg_dict, writer, peer):
@@ -558,55 +568,39 @@ async def bootstrap():
     
     ALL_PEERS = PEERS.union(const.PRELOADED_PEERS)
     
+    print(f"ALL_PEERS: {ALL_PEERS}")
+    
     for peer in ALL_PEERS:
-        try:
-            PENDING_PEERS.add(peer)
-            await connect_to_node(peer)
-        except Exception as e:
-            print(f"Failed to connect to {peer}: {str(e)}")  
+        add_peer(peer.host, peer.port)
+        t = asyncio.create_task(connect_to_node(peer))
+        BACKGROUND_TASKS.add(t)
+        t.add_done_callback(lambda t: BACKGROUND_TASKS.remove(t))
 
 # Ensure the node has at least the threshold number of active connections.
 def resupply_connections():
-    """
-    Ensure the node has at least the threshold number of active connections.
-    If connections fall below the threshold, attempt to connect to known peers.
-    This version is non-async.
-    """
-    low_connection_threshold = const.LOW_CONNECTION_THRESHOLD  # Threshold from constants
-    current_connections = len(CONNECTIONS)
-
-    # Only resupply if below the threshold
-    if current_connections >= low_connection_threshold:
-        #print(f"Current connections ({current_connections}) meet or exceed the threshold ({low_connection_threshold}). No action needed.")
-        return
-
-    # Calculate how many more connections are needed
-    needed_connections = low_connection_threshold - current_connections + 10 # Add a buffer of 10 connections
-    print(f"Currently have {current_connections} connections, trying to add {needed_connections} more connections.")
-
-    # Randomize the list of known peers and attempt to connect to fill the gap
-    known_peers = list(PEERS.union(const.PRELOADED_PEERS))  # Combine known and preloaded peers
-    random.shuffle(known_peers)
     
-    attempted_connections = 0
-
-    # Start connection attempts to meet the threshold
-    for peer in known_peers:
-        if peer not in CONNECTIONS and (peer not in PENDING_PEERS):
-            print(f"Attempting to connect to peer: {peer}")
-            try:
-                # Start connection attempt as a background task
-                asyncio.create_task(connect_to_node(peer))  # No await, scheduling connection
-                attempted_connections += 1
-                if attempted_connections >= needed_connections:
-                    print(f"Connection threshold reached with {current_connections} connections.")
-                    break  # Stop once the threshold is met
-            except Exception as e:
-                print(f"Failed to connect to {peer}: {str(e)}")
-
-    if current_connections < low_connection_threshold:
-        print(f"Warning: Unable to reach connection threshold. Currently at {current_connections} connections.")
-
+    connections = set(CONNECTIONS.keys())
+    
+    if len(connections) >= const.LOW_CONNECTION_THRESHOLD:
+        return
+    
+    npeers = const.LOW_CONNECTION_THRESHOLD - len(connections)
+    available_peers = PEERS - connections
+    
+    if len(available_peers) == 0:
+        print("Not enough peers available to reconnect.")
+        return
+    
+    if len(available_peers) < npeers:
+        npeers = len(available_peers)
+        
+    print(f"Opening {npeers} new connections.")
+        
+    for peer in random.sample(tuple(available_peers), npeers):
+        t = asyncio.create_task(connect_to_node(peer))
+        BACKGROUND_TASKS.add(t)
+        t.add_done_callback(lambda t: BACKGROUND_TASKS.remove(t))
+        
 
 async def init():
     global BLOCK_WAIT_LOCK
