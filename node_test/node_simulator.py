@@ -75,7 +75,7 @@ async def send_messages(writer):
         elif choice == "5":
             response = {
                 "type": "ihaveobject",
-                "objectid": "0000000052a0e645eca917ae1c196e0d0a4fb756747f29ef52594d68484bb5e2"  # Example object ID
+                "objectid": "0000000052a0e645eca917ae1c196e0d0a4fb756747f29ef52594d68484bb333"  # Example object ID
             }
         elif choice == "6":
             response = {

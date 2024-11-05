@@ -659,9 +659,9 @@ async def handle_ihaveobject_msg(msg_dict, writer):
     
     # check if the object is already in the database
     if object_db.check_object_in_db(objid):
+        print(f"Object {objid} already in database.")
         return
     
-    # send a getobject message to the sender
     await write_msg(writer, mk_getobject_msg(objid))
 
 
