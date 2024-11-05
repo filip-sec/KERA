@@ -70,7 +70,7 @@ async def send_messages(writer):
         elif choice == "4":
             response = {
                 "type": "getobject",
-                "objecti": "d46d09138f0251edc32e28f1a744cb0b7286850e4c9c777d7e3c6e459b289347"  # Example object ID
+                "objectid": "d46d09138f0251edc32e28f1a744cb0b7286850e4c9c777d7e3c6e459b289347"  # Example object ID
             }
         elif choice == "5":
             response = {
@@ -106,7 +106,7 @@ async def send_messages(writer):
                     "outputs": [
                         {
                             "pubkey": "b539258e808b3e3354b9776d1ff4146b52282e864f56224e7e33e7932ec72985",
-                            "value": 10
+                            "value": 11
                         },
                         {
                             "pubkey": "8dbcd2401c89c04d6e53c81c90aa0b551cc8fc47c0469217c8f5cfbae1e911f9",
