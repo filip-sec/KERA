@@ -346,9 +346,9 @@ def add_peer(peer_host, peer_port):
             # Try to interpret the host as an IP address
             ip = ipaddress.ip_address(new_peer.host)
             # Check if the IP address is loopback or multicast
-            if ip.is_loopback or ip.is_multicast:
-                print(f"Peer {new_peer} is a loopback or multicast address.")
-                return
+            #if ip.is_loopback or ip.is_multicast:
+                #print(f"Peer {new_peer} is a loopback or multicast address.")
+                #return
         except ValueError:
             # If it's not an IP address, just continue
             pass
@@ -377,6 +377,7 @@ def add_connection(peer, queue, writer):
 # Delete connection
 def del_connection(peer):
     ip, port = peer
+    print (f"Deleting connection with {peer}")
     del CONNECTIONS[Peer(ip, port)]
 
 # Error message generator
@@ -837,9 +838,11 @@ async def handle_connection(reader, writer):
             validate_msg(msg_dict)
             await handle_message(msg_dict, writer, peer)
 
-
-    except  FaultyNodeException as e:
+    except FaultyNodeException as e:
         print("{}: Detected Faulty Node: {}: {}".format(peer, e.error_name, e.message))
+        peer_db.remove_peer(peer)
+        PEERS.remove(Peer(peer[0], peer[1]))
+        print(f'PEERS: {PEERS}')
         try:
             await write_msg(writer, mk_error_msg(e.error_name, e.message))
         except:
