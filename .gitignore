@@ -4,3 +4,4 @@ __pycache__/
 peers.csv
 .DS_Store
 env/
+kerma.db

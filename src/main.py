@@ -6,6 +6,7 @@ from jcs import canonicalize
 import mempool
 import objects
 import peer_db
+import create_db 
 
 import asyncio
 import ipaddress
@@ -54,7 +55,7 @@ def add_peer(peer_host, peer_port):
             pass
             
         if new_peer in PEERS:
-            print(f"Peer {new_peer} is already known.")
+            #print(f"Peer {new_peer} is already known.")
             return
         else:
             peer_db.store_peer(new_peer, PEERS)
@@ -633,6 +634,11 @@ async def init():
 
 
 def main():
+    
+    # Create the database and objects table
+    create_db.main()
+    
+    # Run the main event loop
     asyncio.run(init())
 
 
