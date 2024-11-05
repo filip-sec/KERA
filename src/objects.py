@@ -111,55 +111,50 @@ def verify_transaction(tx_dict):
         print("Verifying coinbase transaction")
         
         if not isinstance(tx_dict["height"], int) or tx_dict["height"] < 0:
-            raise Exception("Invalid height in coinbase transaction")
+            raise TXVerifyException("Invalid height in coinbase transaction")
         if "inputs" in tx_dict:
-            raise Exception("Coinbase transaction must not contain inputs")
+            raise TXVerifyException("Coinbase transaction must not contain inputs")
         if "outputs" not in tx_dict or not isinstance(tx_dict["outputs"], list):
-            raise Exception("Coinbase transaction must contain outputs")
+            raise TXVerifyException("Coinbase transaction must contain outputs")
         if len(tx_dict["outputs"]) != 1:
-            raise Exception("Coinbase transaction must contain exactly one output")
+            raise TXVerifyException("Coinbase transaction must contain exactly one output")
         if not validate_transaction_output(tx_dict["outputs"][0]):
-            raise Exception("Invalid output in coinbase transaction")
+            raise TXVerifyException("Invalid output in coinbase transaction")
         return True
     
     print("Verifying transaction")
     
     # Check if transaction contains inputs and outputs
     if "inputs" not in tx_dict or "outputs" not in tx_dict:
-        raise Exception("Transaction must contain inputs and outputs")
+        raise TXVerifyException("Transaction must contain inputs and outputs")
     if not isinstance(tx_dict["inputs"], list) or not isinstance(tx_dict["outputs"], list):
-        raise Exception("Inputs and outputs must be lists")
+        raise TXVerifyException("Inputs and outputs must be lists")
     
-    print("Inputs and outputs are checked")
 
     # Check if the sum of input values is less than or equal to the sum of output values
     input_sum = 0
     for inp in tx_dict["inputs"]:
         if not object_db.check_object_in_db(inp["outpoint"]["txid"]):
-            raise Exception("Referenced transaction does not exist in the database")
+            raise TXVerifyException("Referenced transaction does not exist in the database")
         # Fetch the referenced transaction from the database
         ref_tx = object_db.get_object(inp["outpoint"]["txid"])
         if inp["outpoint"]["index"] >= len(ref_tx["outputs"]):
-            raise Exception("Invalid output index in referenced transaction")
+            raise TXVerifyException("Invalid output index in referenced transaction")
         input_sum += ref_tx["outputs"][inp["outpoint"]["index"]]["value"]
         
-    print("Input sum is calculated")
 
     output_sum = sum(out["value"] for out in tx_dict["outputs"])
     
-    print("Output sum is calculated")
-    
     if input_sum < output_sum:
-        raise Exception("Sum of input values is less than sum of output values")
+        raise TXVerifyException("Sum of input values is less than sum of output values")
     
-    print("Input sum is greater than output sum")
     
     # Verify each input signature
     for inp in tx_dict["inputs"]:
         # Fetch the referenced transaction from the database
         ref_tx = object_db.get_object(inp["outpoint"]["txid"])
         if not verify_tx_signature(tx_dict, inp["sig"], ref_tx["outputs"][inp["outpoint"]["index"]]["pubkey"]):
-            raise Exception("Invalid signature in transaction")
+            raise TXVerifyException("Invalid signature in transaction")
         
     print("Transaction verified successfully")
     return True
@@ -167,24 +162,19 @@ def verify_transaction(tx_dict):
 
 def validate_object(obj_dict):
     if "type" not in obj_dict:
-        return False
+        raise ErrorInvalidFormat("Object type not specified")
 
     #validate transaction and verify transaction
     if obj_dict["type"] == "transaction":
         if not validate_transaction(obj_dict):
-            return False
+            raise ErrorInvalidFormat("Invalid transaction format")
+        
         print("Validated transaction")
         
-        try:
-            return verify_transaction(obj_dict)
-        except Exception as e:
-            print(e)
-            return False
+        verify_transaction(obj_dict)
         
     elif obj_dict["type"] == "block":
-        return validate_block(obj_dict)
-    
-    return False
+        validate_block(obj_dict)
 
 def validate_transaction(tx_dict):
     if "height" in tx_dict:

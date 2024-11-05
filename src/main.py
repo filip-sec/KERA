@@ -583,7 +583,7 @@ def validate_object_msg(msg_dict):
     validate_keys(msg_dict, required_keys, optional_keys, "object")
     
     obj_dict = msg_dict.get("object")
-    if not obj_dict or not objects.validate_object(obj_dict):
+    if not obj_dict:
         raise ErrorInvalidFormat("Invalid 'object' in 'object' message.")
 
 # raise an exception if not valid
@@ -695,8 +695,7 @@ async def handle_object_msg(msg_dict, peer_self, writer):
         return
     
     # check if the object is valid
-    if not objects.validate_object(obj_dict):
-        raise ErrorInvalidFormat("Invalid object format.")
+    objects.validate_object(obj_dict)
     
     # store the object in the database
     object_db.store_object(obj_dict)
