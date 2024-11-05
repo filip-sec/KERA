@@ -28,4 +28,10 @@ class ErrorInvalidHandshake(FaultyNodeException):
         self.message = message
         self.error_name = "INVALID_HANDSHAKE"
         super().__init__(self.message, self.error_name)
+        
+class TXVerifyException(FaultyNodeException):
+    def __init__(self, message) -> None:
+        self.message = message
+        self.error_name = "TX_VERIFY"
+        super().__init__(self.message, self.error_name)
 

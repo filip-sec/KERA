@@ -696,8 +696,7 @@ async def handle_object_msg(msg_dict, peer_self, writer):
     
     # check if the object is valid
     if not objects.validate_object(obj_dict):
-        print(f"Object {objid} is invalid.")
-        return
+        raise ErrorInvalidFormat("Invalid object format.")
     
     # store the object in the database
     object_db.store_object(obj_dict)
