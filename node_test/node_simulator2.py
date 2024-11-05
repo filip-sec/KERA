@@ -70,7 +70,7 @@ async def send_messages(writer):
         elif choice == "4":
             response = {
                 "type": "getobject",
-                "objectid": "0000000052a0e645eca917ae1c196e0d0a4fb756747f29ef52594d68484bb5e2"  # Example object ID
+                "objectid": "d46d09138f0251edc32e28f1a744cb0b7286850e4c9c777d7e3c6e459b289347"  # Example object ID
             }
         elif choice == "5":
             response = {
@@ -80,16 +80,14 @@ async def send_messages(writer):
         elif choice == "6":
             response = {
                 "type": "object",
-                "object": {
-                    "T": "00000000abc00000000000000000000000000000000000000000000000000000",  # Example ID
-                    "created": 1671062400,  # Example timestamp
-                    "miner": "Marabu",  # Example miner name
-                    "nonce": "000000000000000000000000000000000000000000000000000000021bea03ed",  # Example nonce
-                    "note": "The New York Times 2022−12−13: Scientists Achieve Nuclear Fusion Breakthrough With Blast of 192 Lasers",  # Example note
-                    "previd": None,  # Example previous object ID (None for genesis)
-                    "txids": [],  # Example transaction IDs (empty for now)
-                    "type": "block"  # Specify type as block or transaction as needed
-                }
+                "object":{ 
+                    "height": 0, 
+                    "outputs": [{
+                            "pubkey": "85acb336a150b16a9c6c8c27a4e9c479d9f99060a7945df0bb1b53365e98969b",
+                            "value": 50000000000000
+                    }],
+                    "type": "transaction" 
+                },
             }
         else:
             print("Invalid choice.")
