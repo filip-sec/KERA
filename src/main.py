@@ -1,4 +1,3 @@
-
 """
 Kerma: Protocol Description
 1 Project Description
@@ -365,14 +364,14 @@ def add_peer(peer_host, peer_port):
             print(f"Failed to add peer {peer_host}:{peer_port}: {str(e)}")
 
 # Add connection if not already open
-def add_connection(peer, queue):
+def add_connection(peer, queue, writer):
     ip, port = peer
 
     p = Peer(ip, port)
     if p in CONNECTIONS:
         raise Exception("Connection with {} already open!".format(peer))
 
-    CONNECTIONS[p] = queue
+    CONNECTIONS[p] = (queue, writer)
 
 
 # Delete connection
@@ -704,10 +703,10 @@ async def handle_object_msg(msg_dict, peer_self, writer):
     object_db.store_object(obj_dict)
     
     # send an ihaveobject message to all connected peers
-    for peer in CONNECTIONS:
+    for peer, (queue, peer_writer) in CONNECTIONS.items():
         if peer == peer_self:
             continue
-        await write_msg(CONNECTIONS[peer], mk_ihaveobject_msg(objid))
+        await write_msg(peer_writer, mk_ihaveobject_msg(objid))
 
 # return a list of transactions that tx_dict references
 def gather_previous_txs(db_cur, tx_dict):
@@ -783,7 +782,7 @@ async def handle_connection(reader, writer):
             raise Exception("Failed to get peername!")
         
         
-        add_connection(peer, queue)
+        add_connection(peer, queue, writer)
         
         print(f"New connection with {peer}")
         
