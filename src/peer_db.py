@@ -20,3 +20,20 @@ def load_peers() -> Set[Peer]:
         # If the file doesn't exist, return an empty set
         pass
     return peers
+
+def remove_peer(peer: Peer):
+    print("Removing peer")
+    # Read the existing peers
+    existing_peers = load_peers()
+    
+    peer_to_remove = Peer(peer[0], peer[1])
+    
+    # Remove the peer from the set
+    existing_peers.discard(peer_to_remove)
+    
+    # Write the remaining peers back to the file
+    with open(PEER_DB_FILE, 'w') as f:
+        f.write("host,port\n")
+        for p in existing_peers:
+            f.write(f"{p.host},{p.port}\n")
+    

@@ -11,6 +11,7 @@ HELLO_MSG_TIMEOUT = 20.0
 HELLO_VERSION = "0.10."
 HELLO_AGENT_MAX_LEN = 128
 PEER_DB_FILE = 'peers.csv'
+DB_NAME = 'kerma.db'
 RECV_BUFFER_LIMIT = 512 * 1024
 BLOCK_TARGET = ""
 BLOCK_VERIFY_WAIT_FOR_PREV_MUL = 10
@@ -37,5 +38,5 @@ BANNED_HOSTS = [
 PRELOADED_PEERS = {
     Peer("128.130.122.101", 18018), # lecturers node
     #Peer("127.0.0.1", 18019), # test node 1
-    #Peer("10.250.84.252", 18020), # test node 2
+    #Peer("127.0.0.1", 18020), # test node 2
 }
