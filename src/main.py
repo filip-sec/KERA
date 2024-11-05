@@ -403,10 +403,6 @@ def mk_getpeers_msg():
     }
 
 def mk_peers_msg():
-    """
-    Create a 'peers' message with up to 30 known peers in the format 'host:port'.
-    Includes the current node as the first peer if listening.
-    """
     # Initialize the list of peers to include in the message
     peers_list = []
 
@@ -468,7 +464,7 @@ def parse_msg(msg_str):
         msg_dict = json.loads(msg_str)
         return msg_dict
     except json.JSONDecodeError:
-        raise MalformedMsgException("Invalid JSON format")
+        raise ErrorInvalidFormat("Invalid JSON format.")
 
 # Send data over the network as a message
 async def write_msg(writer, msg_dict):
@@ -483,52 +479,32 @@ async def write_msg(writer, msg_dict):
         print(f"Failed to send message: {str(e)}")
 
 def validate_keys(msg_dict, required_keys, optional_keys, msg_type):
-    """
-    Validates that a message dictionary contains only allowed keys and includes all required keys.
-
-    Args:
-        msg_dict (dict): The message dictionary to validate.
-        required_keys (set): A set of keys that are required in the message.
-        optional_keys (set): A set of keys that are optional in the message.
-        msg_type (str): The type of the message being validated.
-
-    Raises:
-        MalformedMsgException: If the message contains an invalid key or is missing a required key.
-    """
     allowed_keys = required_keys | optional_keys
 
     # Check for invalid keys
     for key in msg_dict.keys():
         if key not in allowed_keys:
-            raise MalformedMsgException(f"Invalid key '{key}' in '{msg_type}' message.")
+            raise ErrorInvalidFormat(f"Invalid key '{key}' in '{msg_type}' message.")
     
     # Check for missing required keys
     for key in required_keys:
         if key not in msg_dict.keys():
-            raise MalformedMsgException(f"Missing required key '{key}' in '{msg_type}' message.")
+            raise ErrorInvalidFormat(f"Missing required key '{key}' in '{msg_type}' message.")
 
 # Parse and validate the 'hello' message
 def validate_hello_msg(msg_dict):
-    """
-    Validates the 'hello' message.
 
-    Args:
-        msg_dict (dict): The 'hello' message dictionary to validate.
-
-    Raises:
-        MalformedMsgException: If the message is malformed.
-    """
     required_keys = {"type", "version", "agent"}
     optional_keys = set()  # No optional keys for 'hello' message
     validate_keys(msg_dict, required_keys, optional_keys, "hello")
     
     version = msg_dict.get("version")
     if not version or not version.startswith(const.HELLO_VERSION) or len(version) != 6:
-        raise MalformedMsgException("Invalid 'version' in 'hello' message.")
+        raise ErrorInvalidFormat("Invalid 'version' in 'hello' message.")
 
     agent = msg_dict.get("agent")
     if not agent or len(agent) > const.HELLO_AGENT_MAX_LEN or not agent.isascii() or not agent.isprintable():
-        raise MalformedMsgException("Invalid 'agent' in 'hello' message.")
+        raise ErrorInvalidFormat("Invalid 'agent' in 'hello' message.")
 
 # Validate the 'peers' message
 def validate_peers_msg(msg_dict):
@@ -537,11 +513,11 @@ def validate_peers_msg(msg_dict):
     validate_keys(msg_dict, required_keys, optional_keys, "peers")
     
     if msg_dict.get("type") != "peers":
-        raise MalformedMsgException("Invalid 'peers' message type.")
+        raise ErrorInvalidFormat("Invalid 'peers' message type.")
 
     peers_list = msg_dict.get("peers")
     if not isinstance(peers_list, list) or len(peers_list) > 30:
-        raise MalformedMsgException("Invalid 'peers' list.")
+        raise ErrorInvalidFormat("Invalid 'peers' list.")
     
     
     # Validate each peer in the list
@@ -557,7 +533,7 @@ def validate_peers_msg(msg_dict):
             
         except (ValueError, AttributeError):
             # Raise error if any peer entry is malformed
-            raise MalformedMsgException(f"Invalid peer format: {peer}")
+            raise ErrorInvalidFormat(f"Invalid peer format: {peer}")
     
 
 
@@ -567,7 +543,7 @@ def validate_getpeers_msg(msg_dict):
     optional_keys = set()
     validate_keys(msg_dict, required_keys, optional_keys, "getpeers")
     if msg_dict.get("type") != "getpeers":
-        raise MalformedMsgException("Invalid 'getpeers' message type.")
+        raise ErrorInvalidFormat("Invalid 'getpeers' message type.")
 
 
 # raise an exception if not valid
@@ -589,7 +565,7 @@ def validate_ihaveobject_msg(msg_dict):
     validate_keys(msg_dict, required_keys, optional_keys, "ihaveobject")
     
     if not objects.validate_objectid(msg_dict.get("objectid")):
-        raise MalformedMsgException("Invalid 'objectid' in 'ihaveobject' message.")
+        raise ErrorInvalidFormat("Invalid 'objectid' in 'ihaveobject' message.")
     
     
 # raise an exception if not valid
@@ -599,7 +575,7 @@ def validate_getobject_msg(msg_dict):
     validate_keys(msg_dict, required_keys, optional_keys, "getobject")
     
     if not objects.validate_objectid(msg_dict.get("objectid")):
-        raise MalformedMsgException("Invalid 'objectid' in 'getobject' message.")
+        raise ErrorInvalidFormat("Invalid 'objectid' in 'getobject' message.")
 
 # raise an exception if not valid
 def validate_object_msg(msg_dict):
@@ -609,7 +585,7 @@ def validate_object_msg(msg_dict):
     
     obj_dict = msg_dict.get("object")
     if not obj_dict or not objects.validate_object(obj_dict):
-        raise MalformedMsgException("Invalid 'object' in 'object' message.")
+        raise ErrorInvalidFormat("Invalid 'object' in 'object' message.")
 
 # raise an exception if not valid
 def validate_chaintip_msg(msg_dict):
@@ -623,11 +599,11 @@ def validate_msg(msg_dict):
     
     # Check for missing type key
     if 'type' not in msg_dict.keys():
-        raise MalformedMsgException(f"Missing required key 'type' in message.")
+        raise ErrorInvalidFormat(f"Missing required key 'type' in message.")
     
     #Check if type is a string
     if not isinstance(msg_dict['type'], str):
-        raise MalformedMsgException(f"Invalid 'type' key in message (not a string).")
+        raise ErrorInvalidFormat(f"Invalid 'type' key in message (not a string).")
         
     msg_type = msg_dict['type']
     
@@ -654,7 +630,7 @@ def validate_msg(msg_dict):
     elif msg_type == 'mempool':
         validate_mempool_msg(msg_dict)
     else:
-        raise MalformedMsgException(f"Unknown message type: {msg_type}")
+        raise ErrorInvalidFormat(f"Unknown message type: {msg_type}")
         
 
 
@@ -817,7 +793,7 @@ async def handle_connection(reader, writer):
         validate_msg(first_msg_dict)
         
         if first_msg_dict['type'] != 'hello':
-            raise MessageException("First message is not 'hello'")
+            raise ErrorInvalidHandshake("First message is not 'hello'")
 
         print(f"Handshake complete with {peer}")
         
@@ -848,22 +824,16 @@ async def handle_connection(reader, writer):
             if read_task is not None:
                 continue
             
-            try:
-                msg_dict = parse_msg(msg_str)
-                validate_msg(msg_dict)
-                await handle_message(msg_dict, writer, peer)
-                
-            
-            except MalformedMsgException as e:
-                await write_msg(writer, mk_error_msg("INVALID_FORMAT", str(e)))
-                print(f"Malformed message from {peer}: {e}")
-                break
+            msg_dict = parse_msg(msg_str)
+            validate_msg(msg_dict)
+            await handle_message(msg_dict, writer, peer)
 
-            except MessageException as e:
-                await write_msg(writer, mk_error_msg("INVALID_HANDSHAKE", str(e)))
-                print(f"Handshake error with {peer}: {e}")
-                break
-
+    except  FaultyNodeException as e:
+        print("{}: Detected Faulty Node: {}: {}".format(peer, e.error_name, e.message))
+        try:
+            await write_msg(writer, mk_error_msg(e.message, e.error_name))
+        except:
+            pass
                 
     except asyncio.TimeoutError:
         await write_msg(writer, mk_error_msg("INVALID_HANDSHAKE", "Timeout waiting for 'hello' message"))
@@ -883,7 +853,7 @@ async def handle_message(msg_dict, writer, peer):
     """Helper function to handle post-handshake messages."""
     msg_type = msg_dict['type']
     if msg_type == 'hello':
-        raise MessageException("Received 'hello' message after handshake.")
+        raise ErrorInvalidHandshake("Received 'hello' message after handshake.")
     elif msg_type == 'getpeers':
         print(f"Received 'getpeers' request from {peer}")
         # Create and send the peers message
