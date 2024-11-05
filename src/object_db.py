@@ -47,5 +47,33 @@ def preload_genesis_block(cur):
 def get_objid(obj_dict):
     return hashlib.blake2s(canonicalize(obj_dict)).hexdigest()
 
+def check_object_in_db(objid):
+    """Check if an object with a given objectid exists in the database."""
+    con = sqlite3.connect(const.DB_NAME)
+    try:
+        cur = con.cursor()
+        cur.execute("SELECT COUNT(1) FROM objects WHERE objectid = ?", (objid,))
+        exists = cur.fetchone()[0] > 0
+    except Exception as e:
+        print(f"Error checking object in DB: {e}")
+        return False
+    finally:
+        con.close()
+    return exists
+
+def get_object(objid):
+    """Retrieve an object from the database given its objectid."""
+    con = sqlite3.connect(const.DB_NAME)
+    try:
+        cur = con.cursor()
+        cur.execute("SELECT object_data FROM objects WHERE objectid = ?", (objid,))
+        obj_data = cur.fetchone()[0]
+    except Exception as e:
+        print(f"Error retrieving object from DB: {e}")
+        return None
+    finally:
+        con.close()
+    return json.loads(obj_data)
+
 if __name__ == "__main__":
     main()
