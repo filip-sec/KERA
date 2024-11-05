@@ -57,7 +57,7 @@ def validate_transaction_input(in_dict):
 
     # Check if referenced transaction exists in the database
     if not object_db.check_object_in_db(outpoint["txid"]):
-        raise TXVerifyException("Referenced transaction does not exist in the database")
+        raise ErrorUnknownObject("Referenced transaction does not exist in the database")
 
     return True
 
@@ -133,11 +133,10 @@ def verify_transaction(tx_dict):
 
     # Check if the sum of input values is less than or equal to the sum of output values
     input_sum = 0
-    for inp in tx_dict["inputs"]:
-        if not object_db.check_object_in_db(inp["outpoint"]["txid"]):
-            raise TXVerifyException("Referenced transaction does not exist in the database")
+    for inp in tx_dict["inputs"]:        
         # Fetch the referenced transaction from the database
         ref_tx = object_db.get_object(inp["outpoint"]["txid"])
+        
         if inp["outpoint"]["index"] >= len(ref_tx["outputs"]):
             raise TXVerifyException("Invalid output index in referenced transaction")
         input_sum += ref_tx["outputs"][inp["outpoint"]["index"]]["value"]

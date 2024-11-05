@@ -34,4 +34,10 @@ class TXVerifyException(FaultyNodeException):
         self.message = message
         self.error_name = "TX_VERIFY"
         super().__init__(self.message, self.error_name)
+        
+class ErrorUnknownObject(NonfaultyNodeException):
+    def __init__(self, message) -> None:
+        self.message = message
+        self.error_name = "UNKNOWN_OBJECT"
+        super().__init__(self.message, self.error_name)
 

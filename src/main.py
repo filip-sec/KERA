@@ -837,10 +837,11 @@ async def handle_connection(reader, writer):
             validate_msg(msg_dict)
             await handle_message(msg_dict, writer, peer)
 
+
     except  FaultyNodeException as e:
         print("{}: Detected Faulty Node: {}: {}".format(peer, e.error_name, e.message))
         try:
-            await write_msg(writer, mk_error_msg(e.message, e.error_name))
+            await write_msg(writer, mk_error_msg(e.error_name, e.message))
         except:
             pass
                 
@@ -860,33 +861,34 @@ async def handle_connection(reader, writer):
 
 async def handle_message(msg_dict, writer, peer):
     """Helper function to handle post-handshake messages."""
-    msg_type = msg_dict['type']
-    if msg_type == 'hello':
-        raise ErrorInvalidHandshake("Received 'hello' message after handshake.")
-    elif msg_type == 'getpeers':
-        print(f"Received 'getpeers' request from {peer}")
-        # Create and send the peers message
-        peers_msg = mk_peers_msg()
-        await write_msg(writer, peers_msg)
-        print(f"Sent 'peers' message to {peer}")
-    elif msg_type == 'peers':
-        print(f"Received 'peers' message from {peer}")
-        handle_peers_msg(msg_dict)
-    elif msg_type == 'getobject':
-        print(f"Received 'getobject' request from {peer}")
-        await handle_getobject_msg(msg_dict, writer)
-    elif msg_type == 'object':
-        print(f"Received 'object' message from {peer}")
-        await handle_object_msg(msg_dict, peer, writer)
-    elif msg_type == 'ihaveobject':
-        print(f"Received 'ihaveobject' message from {peer}")
-        await handle_ihaveobject_msg(msg_dict, writer)
-        print(f"Sent 'getobject' message to {peer}")
-    else:
-        print(f"Unknown message type received from {peer}: {msg_dict['type']}")
-
-
-
+    try:
+        msg_type = msg_dict['type']
+        if msg_type == 'hello':
+            raise ErrorInvalidHandshake("Received 'hello' message after handshake.")
+        elif msg_type == 'getpeers':
+            print(f"Received 'getpeers' request from {peer}")
+            # Create and send the peers message
+            peers_msg = mk_peers_msg()
+            await write_msg(writer, peers_msg)
+            print(f"Sent 'peers' message to {peer}")
+        elif msg_type == 'peers':
+            print(f"Received 'peers' message from {peer}")
+            handle_peers_msg(msg_dict)
+        elif msg_type == 'getobject':
+            print(f"Received 'getobject' request from {peer}")
+            await handle_getobject_msg(msg_dict, writer)
+        elif msg_type == 'object':
+            print(f"Received 'object' message from {peer}")
+            await handle_object_msg(msg_dict, peer, writer)
+        elif msg_type == 'ihaveobject':
+            print(f"Received 'ihaveobject' message from {peer}")
+            await handle_ihaveobject_msg(msg_dict, writer)
+            print(f"Sent 'getobject' message to {peer}")
+        else:
+            print(f"Unknown message type received from {peer}: {msg_dict['type']}")
+    except NonfaultyNodeException as e:
+        print("{}: An error occured: {}: {}".format(peer, e.error_name, e.message))
+        await write_msg(writer, mk_error_msg(e.error_name, e.message))
 
 
 async def connect_to_node(peer: Peer):

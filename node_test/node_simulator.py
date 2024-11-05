@@ -98,7 +98,7 @@ async def send_messages(writer):
                         {
                             "outpoint": {
                                 "index": 0,
-                                "txid": "d46d09138f0251edc32e28f1a744cb0b7286850e4c9c777d7e3c6e459b289347"
+                                "txid": "d56d09138f0251edc32e28f1a744cb0b7286850e4c9c777d7e3c6e459b289347"
                             },
                             "sig": "6204bbab1b736ce2133c4ea43aff3767c49c881ac80b57ba38a3bab980466644cdbacc86b1f4357cfe45e6374b963f5455f26df0a86338310df33e50c15d7f04"
                         }
