@@ -702,9 +702,13 @@ async def handle_object_msg(msg_dict, peer_self, writer):
     # store the object in the database
     object_db.store_object(obj_dict)
     
+    print(f"Object {objid} stored in database.")
+        
+    
     # send an ihaveobject message to all connected peers
     for peer, (queue, peer_writer) in CONNECTIONS.items():
-        if peer == peer_self:
+        if peer == Peer(peer_self[0], peer_self[1]):
+            print(f"Skipping self: {peer}")
             continue
         await write_msg(peer_writer, mk_ihaveobject_msg(objid))
 
