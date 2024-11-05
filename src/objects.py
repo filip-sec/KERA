@@ -111,24 +111,24 @@ def verify_transaction(tx_dict):
         print("Verifying coinbase transaction")
         
         if not isinstance(tx_dict["height"], int) or tx_dict["height"] < 0:
-            raise TXVerifyException("Invalid height in coinbase transaction")
+            raise ErrorInvalidFormat("Invalid height in coinbase transaction")
         if "inputs" in tx_dict:
-            raise TXVerifyException("Coinbase transaction must not contain inputs")
+            raise ErrorInvalidFormat("Coinbase transaction must not contain inputs")
         if "outputs" not in tx_dict or not isinstance(tx_dict["outputs"], list):
-            raise TXVerifyException("Coinbase transaction must contain outputs")
+            raise ErrorInvalidFormat("Coinbase transaction must contain outputs")
         if len(tx_dict["outputs"]) != 1:
-            raise TXVerifyException("Coinbase transaction must contain exactly one output")
+            raise ErrorInvalidFormat("Coinbase transaction must contain exactly one output")
         if not validate_transaction_output(tx_dict["outputs"][0]):
-            raise TXVerifyException("Invalid output in coinbase transaction")
+            raise ErrorInvalidFormat("Invalid output in coinbase transaction")
         return True
     
     print("Verifying transaction")
     
     # Check if transaction contains inputs and outputs
     if "inputs" not in tx_dict or "outputs" not in tx_dict:
-        raise TXVerifyException("Transaction must contain inputs and outputs")
+        raise ErrorInvalidFormat("Transaction must contain inputs and outputs")
     if not isinstance(tx_dict["inputs"], list) or not isinstance(tx_dict["outputs"], list):
-        raise TXVerifyException("Inputs and outputs must be lists")
+        raise ErrorInvalidFormat("Inputs and outputs must be lists")
     
 
     # Check if the sum of input values is less than or equal to the sum of output values
@@ -138,14 +138,14 @@ def verify_transaction(tx_dict):
         ref_tx = object_db.get_object(inp["outpoint"]["txid"])
         
         if inp["outpoint"]["index"] >= len(ref_tx["outputs"]):
-            raise TXVerifyException("Invalid output index in referenced transaction")
+            raise ErrorInvalidTxOutpoint("Invalid output index in referenced transaction")
         input_sum += ref_tx["outputs"][inp["outpoint"]["index"]]["value"]
         
 
     output_sum = sum(out["value"] for out in tx_dict["outputs"])
     
     if input_sum < output_sum:
-        raise TXVerifyException("Sum of input values is less than sum of output values")
+        raise ErrorInvalidTxConservation("Sum of input values is less than sum of output values")
     
     
     # Verify each input signature
@@ -153,7 +153,7 @@ def verify_transaction(tx_dict):
         # Fetch the referenced transaction from the database
         ref_tx = object_db.get_object(inp["outpoint"]["txid"])
         if not verify_tx_signature(tx_dict, inp["sig"], ref_tx["outputs"][inp["outpoint"]["index"]]["pubkey"]):
-            raise TXVerifyException("Invalid signature in transaction")
+            raise ErrorInvalidTxSignature("Invalid signature in transaction")
         
     print("Transaction verified successfully")
     return True
