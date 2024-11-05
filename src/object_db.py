@@ -75,5 +75,20 @@ def get_object(objid):
         con.close()
     return json.loads(obj_data)
 
+def store_object(obj_dict):
+    """Store an object in the database."""
+    con = sqlite3.connect(const.DB_NAME)
+    try:
+        cur = con.cursor()
+        obj_id = get_objid(obj_dict)
+        obj_json = json.dumps(obj_dict)
+        cur.execute("INSERT INTO objects (objectid, object_data) VALUES (?, ?)", (obj_id, obj_json))
+        con.commit()
+    except Exception as e:
+        con.rollback()
+        print(f"Error storing object in DB: {e}")
+    finally:
+        con.close()
+
 if __name__ == "__main__":
     main()

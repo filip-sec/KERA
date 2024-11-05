@@ -686,12 +686,18 @@ async def handle_object_msg(msg_dict, peer_self, writer):
     # get the object from the message
     obj_dict = msg_dict['object']
     
+    # get the objectid
+    objid = object_db.get_objid(obj_dict)
+    print(f"Received object {objid}")
+    
     # check if the object is already in the database
-    if object_db.check_object_in_db(obj_dict['T']):
+    if object_db.check_object_in_db(objid):
+        print(f"Object {objid} already in database.")
         return
     
     # check if the object is valid
     if not objects.validate_object(obj_dict):
+        print(f"Object {objid} is invalid.")
         return
     
     # store the object in the database
@@ -699,7 +705,9 @@ async def handle_object_msg(msg_dict, peer_self, writer):
     
     # send an ihaveobject message to all connected peers
     for peer in CONNECTIONS:
-        await write_msg(CONNECTIONS[peer], mk_ihaveobject_msg(obj_dict['T']))
+        if peer == peer_self:
+            continue
+        await write_msg(CONNECTIONS[peer], mk_ihaveobject_msg(objid))
 
 # return a list of transactions that tx_dict references
 def gather_previous_txs(db_cur, tx_dict):
