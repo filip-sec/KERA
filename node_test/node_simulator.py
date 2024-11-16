@@ -91,31 +91,7 @@ async def send_messages(writer):
             }
         elif choice == "7":
             #895ca2bea390b7508f780c7174900a631e73905dcdc6c07a6b61ede2ebd4033f
-            response = {
-                "type": "object",
-                "object": {
-                    "inputs": [
-                        {
-                            "outpoint": {
-                                "index": 0,
-                                "txid": "d46d09138f0251edc32e28f1a744cb0b7286850e4c9c777d7e3c6e459b289347"
-                            },
-                            "sig": "6204bbab1b736ce2133c4ea43aff3767c49c881ac80b57ba38a3bab980466644cdbacc86b1f4357cfe45e6374b963f5455f26df0a86338310df33e50c15d7f04"
-                        }
-                    ],
-                    "outputs": [
-                        {
-                            "pubkey": "b539258e808b3e3354b9776d1ff4146b52282e864f56224e7e33e7932ec72985",
-                            "value": 11
-                        },
-                        {
-                            "pubkey": "8dbcd2401c89c04d6e53c81c90aa0b551cc8fc47c0469217c8f5cfbae1e911f9",
-                            "value": 49999999999990
-                        }
-                    ],
-                    "type": "transaction"
-                },
-            }
+            response = {"object":{"inputs":[{"outpoint":{"index":0,"txid":"c620b67d916a21f3e86cf37112318581396f5510ea631a2ba4e04dd33021f899"},"sig":"ef9286cbaa3b4ce133c26cb2748ab8e30bcc0f5af7a95b5ad2bf03b701f6f649a23539b59318c44a41c4f784ab2ee24cacbbfed9f943214116a0188538aa8308"}],"outputs":[{"pubkey":"0f5b9ebb1a52e8d9db1158e1cba94155ad4b9bb677f99f8e02e5372379b8234d"}],"type":"transaction"},"type":"object"}
         else:
             print("Invalid choice.")
             continue
