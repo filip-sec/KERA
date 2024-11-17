@@ -114,6 +114,34 @@ async def send_messages(writer):
                     ]
                 }
                 ,"type":"object"}
+        elif choice == "8":
+            #f8d92c944e29ce9b36ff6baecf2412219ff7405f4ec7108c0467737d9e82c607
+            response = {
+                "type": "object",
+                "object":
+                        {
+                            "type": "transaction",
+                            "inputs": [
+                                {
+                                    "outpoint": {
+                                        "txid": "c966ef7b766a7c355749e13a58f7ac0bad0cef4da646db8aef1ea6f58cee5443",
+                                        "index": 0
+                                    },
+                                    "sig": "b58c30f891f0b6116bd0d2ad240cbb1b370ec571aa9bc565e4fe0ec8a734787b74d844fd84a0f5d3e47773b3cf8ca3fe82005c56f18ce9bb00c7f5798c694c0a"
+                                }
+                            ],
+                            "outputs": [
+                                {
+                                    "pubkey": "3391602a43aeb4ae9140f969240e955bf2b0833f325a1a12726cee5d4cda7ed5",
+                                    "value": 5
+                                },
+                                {
+                                    "pubkey": "921c38b1f83f2ca0aae021239aabe22916e512f0800940420bf3ffd10da64575",
+                                    "value": 5
+                                }
+                            ]
+                        }
+            }
         else:
             print("Invalid choice.")
             continue

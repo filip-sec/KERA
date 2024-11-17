@@ -5,12 +5,13 @@ import json
 
 # Valid normal transaction
 
-inputs = [{"txid": "fb70002c26819a156814a48690848498547b3f06f8411feee4cdeb7c772d6c7a", "index": 0}]
+inputs = [{"txid": "c966ef7b766a7c355749e13a58f7ac0bad0cef4da646db8aef1ea6f58cee5443", "index": 0}]
 outputs = [
-    {"pubkey": "3391602a43aeb4ae9140f969240e955bf2b0833f325a1a12726cee5d4cda7ed5", "value": 10},
+    {"pubkey": "3391602a43aeb4ae9140f969240e955bf2b0833f325a1a12726cee5d4cda7ed5", "value": 6},
+    {"pubkey": "921c38b1f83f2ca0aae021239aabe22916e512f0800940420bf3ffd10da64575", "value": 5}
 ]
 private_key_pem = """-----BEGIN PRIVATE KEY-----
-MC4CAQAwBQYDK2VwBCIEIG5QVbuOlaT8vofPZI3It+t3FPa6uJbafRBg2V+0J7CQ
+MC4CAQAwBQYDK2VwBCIEID2+BBzvsXLmG1UUBQydgk3PXL9JcEIV+bKZ3ZUCXbG4
 -----END PRIVATE KEY-----"""
 
 transaction, txid = bh.create_transaction(inputs, outputs, private_key_pem)
