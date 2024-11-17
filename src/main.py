@@ -569,18 +569,19 @@ async def handle_object_msg(msg_dict, peer_self, writer):
             except Exception as e:
                 print(f"Block verification failed for {objid}: {e}")
                 raise ErrorInvalidFormat(f"Block verification failed: {e}")
-
-            # If the block is valid, store it and propagate
-            print(f"Block {objid} verified successfully.")
-            cur.execute("INSERT INTO objects (oid, obj) VALUES (?, ?)", (objid, json.dumps(obj_dict)))
-            con.commit()
-
+            
             # Store updated UTXO and height
             store_block_utxo_height(obj_dict, updated_utxo, updated_height)
 
         else:
             raise ErrorInvalidFormat(f"Unknown object type: {obj_dict['type']}")
+        
+        print("Adding new object '{}'".format(objid))
 
+        obj_str = objects.canonicalize(obj_dict).decode('utf-8')
+        cur.execute("INSERT INTO objects VALUES(?, ?)", (objid, obj_str))
+        con.commit()
+        
         print(f"Stored object {objid} in database.")
 
     except NodeException as e:
@@ -691,7 +692,7 @@ async def handle_connection(reader, writer):
                 msg = parse_msg(msg_str)
                 validate_msg(msg)
                 
-                print("{}: Received this message: {}".format(peer, msg))
+                #print("{}: Received this message: {}".format(peer, msg))
 
                 msg_type = msg['type']
                 if msg_type == 'hello':
