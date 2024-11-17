@@ -56,3 +56,40 @@ class ErrorUnknownObject(NonfaultyNodeException):
         self.message = message
         self.error_name = "UNKNOWN_OBJECT"
         super().__init__(self.message, self.error_name)
+        
+class ErrorInvalidBlockPOW(FaultyNodeException):
+    def __init__(self, message) -> None:
+        self.message = message
+        self.error_name = "INVALID_BLOCK_POW"
+        super().__init__(self.message, self.error_name)
+
+class ErrorInvalidBlockTimestamp(FaultyNodeException):
+    def __init__(self, message) -> None:
+        self.message = message
+        self.error_name = "INVALID_BLOCK_TIMESTAMP"
+        super().__init__(self.message, self.error_name)
+
+class ErrorInvalidBlockCoinbase(FaultyNodeException):
+    def __init__(self, message) -> None:
+        self.message = message
+        self.error_name = "INVALID_BLOCK_COINBASE"
+        super().__init__(self.message, self.error_name)
+
+class ErrorInvalidGenesis(FaultyNodeException):
+    def __init__(self, message) -> None:
+        self.message = message
+        self.error_name = "INVALID_GENESIS"
+        super().__init__(self.message, self.error_name)
+
+class ErrorUnfindableObject(NonfaultyNodeException):
+    def __init__(self, message) -> None:
+        self.message = message
+        self.error_name = "UNFINDABLE_OBJECT"
+        super().__init__(self.message, self.error_name)
+
+class ErrorInvalidAncestry(FaultyNodeException):
+    def __init__(self, message) -> None:
+        self.message = message
+        self.error_name = "INVALID_ANCESTRY"
+        super().__init__(self.message, self.error_name)
+

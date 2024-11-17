@@ -1,3 +1,233 @@
+"""
+3 Application Objects
+Application objects are objects that must be stored by each node. These are content-addressed
+by the blake2s hash of their JSON representation. Therefore, it is important to have the same
+JSON representation as other clients so that the same objects are addressed by the same
+hash. You must normalize your JSON and ensure it is in canonical JSON form. The examples
+in this document contain extra whitespace for readability, but these must not be sent over the
+network. The blake2s of the JSON contents is the objectid.
+An application object is a JSON dictionary containing the type key and further keys depend-
+ing on its type. There are two types of application objects: transactions and blocks. Their
+objectids are called txid and blockid, respectively.
+An application object must only contain keys that are specified, i.e., it must not contain addi-
+tional keys. The same applies to messages.
+3.1 Transactions
+This represents a transaction and has the type transaction. It contains the key inputs
+containing a non-empty array of inputs and the key outputs containing an array of outputs.
+An output is a dictionary with keys value and pubkey. The value is a non-negative integer
+indicating how much value is carried by the output. The value is denominated in picaker,
+the smallest denomination in Kerma. 1 ker = 1012 picaker. The pubkey is a public key of the
+2
+Cryptocurrencies - Project Kerma
+recipient of the money. The money carried by an output can be spend by its owner by using it
+as an input in a future transaction.
+An input contains a pointer to a previous output in the outpoint key and a signature in the
+sig key. The outpoint key contains a dictionary of two keys: txid and index. The txid is
+the objectid of the previous transaction, while the index is the natural number (zero-based)
+indexing an output within that transaction. The sig key contains the signature.
+Signatures are created using the private keys corresponding to the public keys that are
+pointed to by their respective outpoint. Signatures are created on the plaintext which con-
+sists of the transaction they (not their public keys!) are contained within, except that the sig
+values are all replaced with null. This is necessary because a signature cannot sign itself.
+Transactions must satisfy the weak law of conservation: The sum of input values must be
+equal or exceed the sum of output values. Any remaining value can be collected as fees by
+the miner confirming the transaction.
+This is an example of a (syntactically) valid transaction:
+Valid normal transaction
+{
+" type " : " transaction " ,
+" inputs " : [
+{
+" outpoint ":{
+" txid " : " f71408bf847d7dd15824574a7cd4afdfaaa2866286910675cd3fc371507aa196 " ,
+" index ":0
+} ,
+" sig ":"3869a9ea9e7ed926a7c8b30fb71f6ed151a132b03fd5dae764f015c98271000e7
+da322dbcfc97af7931c23c0fae060e102446ccff0f54ec00f9978f3a69a6f0f"
+}
+] ,
+" outputs " : [
+{
+"pubkey":"077a2683d776a71139fd4db4d00c16703ba0753fc8bdc4bd6fc56614e659cde3" ,
+" value":5100000000
+}
+]
+}
+However, this example transaction could in principle still be (semantically) invalid in the fol-
+lowing cases:
+• An object with id f7140..aa196 exists but is a block (INVALID_FORMAT).
+• The referenced transaction f7140...aa196 has no output with index 0
+(INVALID_TX_OUTPOINT).
+3
+Cryptocurrencies - Project Kerma
+• The referenced transaction f7140...aa196 is invalid (INVALID_ANCESTRY1).
+• The output at index 0 in the referenced transaction f7140...aa196 holds less than
+5100000000 picaker (INVALID_TX_CONSERVATION).
+• Verifying the signature using the public key in output at index 0 in transaction
+f7140...aa196 failed (INVALID_TX_SIGNATURE).
+3.1.1 Coinbase Transactions
+A coinbase transaction is a special form of a transaction and is used by a miner to collect
+the block reward. See below section Blocks for more info. If the transaction is a coinbase
+transaction, then it must not contain an inputs key but it must contain an integer height key
+with the block’s height as the value.
+This is an example of a valid coinbase transaction:
+Valid coinbase transaction
+{
+" type " : " transaction " ,
+" height " : 1 ,
+" outputs " : [
+{
+"pubkey" : " 3 f0bc71a375b574e4bda3ddf502fe1afd99aa020bf6049adfe525d9ad18ff33f " ,
+" value":50000000000000
+}
+]
+}
+3.2 Blocks
+This represents a block and has the type block. It must contain the following keys:
+• txids, which is a list of the transaction identifiers within the block.
+• nonce, which is a 32-byte hexified value that can be chosen arbitrarily.
+• previd, which is the object identifier of the previous block in the chain. Only the genesis
+block is allowed to differ from that by having a previd set to null.
+• created, which is an (integer) UNIX timestamp in seconds.
+• T, which is a 32-byte hexadecimal integer and is the mining target.
+1Since your node will never store invalid objects, upon receiving the transaction, it will attempt to fetch the
+referenced transaction from its peer, leaving the object verification pending. When the peer sends the (invalid)
+referenced transaction, your node will find out that it is invalid and will release the pending object verification
+by rejecting the transaction with an INVALID_ANCESTRY error
+4
+Cryptocurrencies - Project Kerma
+Optionally it can contain a miner key and a note key, which can be any ASCII-printable2
+strings up to 128 characters long each.
+Here is an example of a valid block:
+Valid block
+{
+"T":"00000000abc00000000000000000000000000000000000000000000000000000" ,
+" created":1671148800,
+"miner " : " grader " ,
+"nonce":"1000000000000000000000000000000000000000000000000000000001aaf999 " ,
+" note " : " This block has a coinbase transaction " ,
+" previd":"0000000052a0e645eca917ae1c196e0d0a4fb756747f29ef52594d68484bb5e2" ,
+" txids " : [ " 6 ebfb4c8e8e9b19dcf54c6ce3e1e143da1f473ea986e70c5cb8899a4671c933a " ] ,
+" type " : " block "
+}
+Block validity mandates that the block satisfies the proof-of-work equation: blockid < T.
+The genesis block has a null previd. This is our genesis block:
+Genesis block
+{
+"T":"00000000abc00000000000000000000000000000000000000000000000000000" ,
+" created":1671062400,
+"miner " : "Marabu" ,
+"nonce":"000000000000000000000000000000000000000000000000000000021bea03ed" ,
+" note " : " The New York Times 2022−12−13: Sci ent is ts Achieve Nuclear Fusion Breakthrough With Blast of 192 Lasers " ,
+" previd " : null ,
+" txids " : [ ] ,
+" type " : " block "
+}
+All valid chains must extend genesis. Each block must have a timestamp which is later than
+its predecessor but not after the current time.
+The transaction identifiers (txids) in a block may (but is not required to) contain one coinbase
+transaction. This transaction must be the first in txids. It has exactly one output which
+generates 50 ·1012 new picaker and also collects fees from the transactions confirmed in the
+block. The value in this output cannot exceed the sum of the new coins plus the fees, but it can
+be less than that. The height in the coinbase transaction must match the height of the block
+the transaction is contained in. This is so that coinbase transactions with the same public
+key in different blocks are distinct. The block height is defined as the distance to the genesis
+block: The genesis block has a height of 0, a block that has the genesis block as its parent has
+a height of 1 etc. The coinbase transaction cannot be spent in the same block. However, a
+transaction can spend from a previous, non-coinbase transaction in the same block. The order
+of the identifiers of the confirmed transactions in a block defines the order these transactions
+2ASCII-printable characters have hexcodes 0x20 to 0x7e
+5
+Cryptocurrencies - Project Kerma
+are "executed".
+All blocks must have a target T of:
+00000000abc00000000000000000000000000000000000000000000000000000.
+The genesis blockid is:
+0000000052a0e645eca917ae1c196e0d0a4fb756747f29ef52594d68484bb5e2.
+Check this to ensure your implementation is performing correct JSON canonicalization
+4 Block Validation
+In this exercise, you will implement block validation for your Kerma node.
+1. Create the logic to represent a block, as defined in the protocol description.
+2. Check that the block contains all required fields and that they are of the correct format.
+3. Ensure that the target is the one required, i.e.
+"00000000abc00000000000000000000000000000000000000000000000000000"
+4. Check the proof-of-work.
+5. Check that for all the txids in the block, you have the corresponding transaction in your
+local object database. If not, then send a "getobject" message to your peers in order
+to get the transaction and leave the validation of the block pending. Resume validation
+once you received all transactions.
+6. For each transaction in the block, check that the transaction is valid, and update your
+UTXO set based on the transaction. More details on this in Section 5. If any transaction
+is invalid, the whole block must be considered invalid.
+7. Check for coinbase transactions. There can be at most one coinbase transaction in a
+block. If present, then the txid of the coinbase transaction must be at index 0 in txids.
+The coinbase transaction cannot be spent in another transaction in the same block (this
+is in order to make the law of conservation for the coinbase transaction easier to verify).
+8. Validate the coinbase transaction if there is one.
+(a) Check that the coinbase transaction has no inputs, exactly one output and a height.
+Check that the height and the public key are of the valid format.
+(b) Verify the law of conservation for the coinbase transaction. The output of the coin-
+base transaction can be at most the sum of transaction fees in the block plus the
+block reward. In our protocol, the block reward is a constant 50 ×1012 picaker. The
+fee of a transaction is the sum of its input values minus the sum of its output values.
+9. When you receive a block object from the network, validate it. If valid, then store the
+block in your local database and gossip the block to all of your peers as you did with
+transactions in the last task.
+2
+Cryptocurrencies (WS2024/25) Dr. Zeta Avarikioti, Prof. Matteo Maffei
+5 Maintaining UTXO Sets
+Overview - UTXO set
+The UTXO set ("unspent transaction output set") contains all unspent transaction
+outputs and is used to quickly check if a new transaction may use a transaction output
+as an input.
+The following scenario explains how a UTXO set should be maintained: Assume that
+a chain of blocks (g, b0, b1) with g the genesis block is valid. This defines an execution
+order of all transactions included in these blocks. Call these transactions (t0, t1).
+Assume further:
+• t0 is a coinbase transaction and the only transaction in block b0.
+• t1 is a transaction spending from the first output of t0 and creating two outputs. It
+is contained in b1.
+Now assume that a node N regards (g, b0) as the current longest chain, because it has
+not yet received block b1.
+The UTXO set of N at this point is {(t0, 0)}, with (t0, 0) denoting the output at index 0 of
+transaction t0.
+Now one of its peers sends N block b1. N fetches the transaction t1 and validates it
+"in isolation", i.e. everything you did in the previous task. Additionally, it now has to
+check if this transaction may spend from its referenced inputs. It could be the case
+that t1 would spend from an output of a transaction which is not confirmed in the
+chain or would spend from a transaction output that has already been spent by another
+transaction; in both cases the whole block must be considered invalid. t1 spends from
+(t0, 0): This is possible, because this particular transaction output exists and is not yet
+spent. To determine this, N just checks if this transaction output is in the current UTXO
+set. Transaction t1 then gets "executed", which means that N needs to update its UTXO
+set: Let u be the current UTXO set, i the set of inputs of t1, and o the set of its outputs.
+Then, the updated UTXO state u′is defined as u′= (u \i) ∪o.
+The reason for maintaining a UTXO set is because verification of new transactions is as
+simple as a set inclusion check - otherwise you might need to traverse the whole chain
+to determine if an output is unspent.
+In this exercise, you will implement a UTXO set and update it by executing the transactions
+of each block that you receive. This task will not yet cover all the features of the UTXO set.
+We will revisit this part in future homeworks.
+1. For each block in your database, store a UTXO set that will be computed by executing
+the transactions in that block. This set is not modified when you receive transactions,
+only when they get executed during handling of new block objects.
+2. When you receive a new block, you will compute the UTXO set after that block in the
+3
+Cryptocurrencies (WS2024/25) Dr. Zeta Avarikioti, Prof. Matteo Maffei
+following way. To begin with, initialize the UTXO set to the UTXO set after the parent
+block (the block corresponding to the previd). Note that the UTXO set after the genesis
+block is empty. For each transaction in the block:
+(a) Validate the transaction as per your validation logic implemented in Task 2. Addi-
+tionally, check that each input of the transaction corresponds to an output that is
+present in the UTXO set. This means that the output exists and also that the output
+has not been spent yet.
+(b) Apply the transaction by removing UTXOs that are spent and adding UTXOs that
+are created. Update the UTXO set accordingly.
+(c) Repeat steps a-b for the next transaction using the updated UTXO set. This is
+because a transaction can spend from an output of a non-coinbase transaction in
+the same block"""
+
+
 from Peer import Peer
 from peers import Peers
 import constants as const
@@ -467,33 +697,53 @@ def gather_previous_txs(db_cur, tx_dict):
 
 # get the block, the current utxo and block height
 def get_block_utxo_height(blockid):
-    # TODO
-    block = ''
-    utxo = ''
-    height = ''
-    return (block, utxo, height)
+    con = sqlite3.connect(const.DB_NAME)
+    try:
+        cur = con.cursor()
+
+        # Fetch block details
+        res = cur.execute("SELECT obj FROM objects WHERE oid = ?", (blockid,))
+        block_row = res.fetchone()
+        if not block_row:
+            raise Exception(f"Previous block {blockid} not found.")
+
+        block = objects.expand_object(block_row[0])
+
+        # Fetch UTXO and height
+        res = cur.execute("SELECT utxo, height FROM block_utxo WHERE blockid = ?", (blockid,))
+        utxo_row = res.fetchone()
+        if not utxo_row:
+            raise Exception(f"UTXO and height for block {blockid} not found.")
+
+        utxo = json.loads(utxo_row[0])  # Deserialize UTXO set
+        height = utxo_row[1]
+
+        return block, utxo, height
+    finally:
+        con.close()
+
 
 # get all transactions as a dict txid -> tx from a list of ids
 def get_block_txs(txids):
     pass # TODO
 
+def store_block_utxo_height(block, utxo, height):
+    con = sqlite3.connect(const.DB_NAME)
+    try:
+        cur = con.cursor()
 
-# Stores for a block its utxoset and height
-def store_block_utxo_height(block, utxo, height: int):
-    pass # TODO
+        # Serialize UTXO set
+        utxo_json = json.dumps(list(utxo))
 
-# runs a task to verify a block
-# raises blockverifyexception
-async def verify_block_task(block_dict):
-    pass # TODO
+        # Store block UTXO and height
+        cur.execute(
+            "INSERT INTO block_utxo (blockid, utxo, height) VALUES (?, ?, ?)",
+            (objects.get_objid(block), utxo_json, height),
+        )
+        con.commit()
+    finally:
+        con.close()
 
-# adds a block verify task to queue and starting it
-def add_verify_block_task(objid, block, queue):
-    pass # TODO
-
-# abort a block verify task
-async def del_verify_block_task(task, objid):
-    pass # TODO
 
 # what to do when an object message arrives
 async def handle_object_msg(msg_dict, peer_self, writer):
@@ -504,44 +754,79 @@ async def handle_object_msg(msg_dict, peer_self, writer):
     ip_self, port_self = peer_self
     peer_self_obj = Peer(ip_self, port_self)
 
-    err_str = None
     con = sqlite3.connect(const.DB_NAME)
     try:
         cur = con.cursor()
         res = cur.execute("SELECT obj FROM objects WHERE oid = ?", (objid,))
 
-        # already have object
-        if not res.fetchone() is None:
-            # object has already been verified as it is in the DB
+        # If the object already exists, skip processing
+        if res.fetchone() is not None:
             return
 
-        print("Received new object '{}'".format(objid))
+        print(f"Processing new object: {objid}")
 
         if obj_dict['type'] == 'transaction':
+            # Process transactions as before
             prev_txs = gather_previous_txs(cur, obj_dict)
             objects.verify_transaction(obj_dict, prev_txs)
+
+        elif obj_dict['type'] == 'block':
+            # Fetch previous block, UTXO set, and height
+            prev_block, prev_utxo, prev_height = get_block_utxo_height(obj_dict['previd'])
+
+            # Collect all transactions referenced in the block
+            txs = {}
+            missing_txids = []
+            for txid in obj_dict['txids']:
+                tx = objects.get_transaction_from_db(txid)
+                if tx:
+                    txs[txid] = tx
+                else:
+                    missing_txids.append(txid)
+
+            # If there are missing transactions, request them from peers and defer validation
+            if missing_txids:
+                print(f"Missing transactions: {missing_txids}")
+                for missing_txid in missing_txids:
+                    await write_msg(writer, mk_getobject_msg(missing_txid))
+                return  # Defer block validation until missing transactions are received
+
+            # Verify the block
+            try:
+                updated_utxo, updated_height = objects.verify_block(
+                    obj_dict, prev_block, prev_utxo, prev_height, txs
+                )
+            except Exception as e:
+                print(f"Block verification failed for {objid}: {e}")
+                raise ErrorInvalidFormat(f"Block verification failed: {e}")
+
+            # If the block is valid, store it and propagate
+            print(f"Block {objid} verified successfully.")
+            cur.execute("INSERT INTO objects (oid, obj) VALUES (?, ?)", (objid, json.dumps(obj_dict)))
+            con.commit()
+
+            # Store updated UTXO and height
+            store_block_utxo_height(obj_dict, updated_utxo, updated_height)
+
         else:
-            # assert: not reached during grading of task 2
-            raise ErrorInvalidFormat("Received an object which is not a transaction, rejecting for now")
+            raise ErrorInvalidFormat(f"Unknown object type: {obj_dict['type']}")
 
-        print("Adding new object '{}'".format(objid))
+        print(f"Stored object {objid} in database.")
 
-        obj_str = objects.canonicalize(obj_dict).decode('utf-8')
-        cur.execute("INSERT INTO objects VALUES(?, ?)", (objid, obj_str))
-        con.commit()
-    except NodeException as e: # whatever the reason, just reject this
+    except NodeException as e:
         con.rollback()
-        print("Failed to verify TX '{}': {}".format(objid, str(e)))
-        raise e # and re-raise this
+        print(f"Failed to process object {objid}: {e}")
+        raise e
     except Exception as e:
         con.rollback()
         raise e
     finally:
         con.close()
 
-    # gossip the new object to all connections
+    # Propagate the new object to peers
     for k, q in CONNECTIONS.items():
         await q.put(mk_ihaveobject_msg(objid))
+
 
 
 # returns the chaintip blockid
