@@ -8,7 +8,7 @@ PORT = 18019  # Port to listen on
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 
-async def read_messages(reader,writer):
+async def read_messages(reader, writer):
     while True:
         data = await reader.read(1024)  # Read up to 100 bytes
         if not data:
@@ -28,7 +28,7 @@ async def read_messages(reader,writer):
                 # Process the received message as JSON
                 try:
                     msg_dict = json.loads(message)
-                    #logging.info(f"Parsed JSON: {msg_dict}")
+                    # logging.info(f"Parsed JSON: {msg_dict}")
                 except json.JSONDecodeError:
                     logging.error("Received an invalid JSON message.")
 
@@ -78,20 +78,42 @@ async def send_messages(writer):
                 "objectid": "0000000052a0e645eca917ae1c196e0d0a4fb756747f29ef52594d68484bb333"  # Example object ID
             }
         elif choice == "6":
+            #fb70002c26819a156814a48690848498547b3f06f8411feee4cdeb7c772d6c7a
             response = {
                 "type": "object",
-                "object":{ 
-                    "height": 0, 
-                    "outputs": [{
-                            "pubkey": "85acb336a150b16a9c6c8c27a4e9c479d9f99060a7945df0bb1b53365e98969b",
-                            "value": 50000000000000
-                    }],
-                    "type": "transaction" 
-                },
+                "object": {
+                    "type": "transaction",
+                    "height": 1,
+                    "outputs": [
+                        {
+                                "pubkey": "da550c7ac3d73fa6b13e8a04b7c5ab59c13119ee2a22a2849164235a008fbfbb",
+                                "value": 50000000000000
+                            }
+                        ]
+                    },
             }
         elif choice == "7":
-            #895ca2bea390b7508f780c7174900a631e73905dcdc6c07a6b61ede2ebd4033f
-            response = {"object":{"inputs":[{"outpoint":{"index":0,"txid":"c620b67d916a21f3e86cf37112318581396f5510ea631a2ba4e04dd33021f899"},"sig":"ef9286cbaa3b4ce133c26cb2748ab8e30bcc0f5af7a95b5ad2bf03b701f6f649a23539b59318c44a41c4f784ab2ee24cacbbfed9f943214116a0188538aa8308"}],"outputs":[{"pubkey":"0f5b9ebb1a52e8d9db1158e1cba94155ad4b9bb677f99f8e02e5372379b8234d"}],"type":"transaction"},"type":"object"}
+            #c966ef7b766a7c355749e13a58f7ac0bad0cef4da646db8aef1ea6f58cee5443
+            response = {"object":
+                {
+                    "type": "transaction",
+                    "inputs": [
+                        {
+                            "outpoint": {
+                                "txid": "fb70002c26819a156814a48690848498547b3f06f8411feee4cdeb7c772d6c7a",
+                                "index": 0
+                            },
+                            "sig": "830af0137d79f095555d4f3c86df285a7a651edb196d326cbad5662e04122e7de00e5ecd22e99b3df12fa2ad4adeea514d48e77defd244daf8375e9e91e30001"
+                        }
+                    ],
+                    "outputs": [
+                        {
+                            "pubkey": "3391602a43aeb4ae9140f969240e955bf2b0833f325a1a12726cee5d4cda7ed5",
+                            "value": 10
+                        }
+                    ]
+                }
+                ,"type":"object"}
         else:
             print("Invalid choice.")
             continue
