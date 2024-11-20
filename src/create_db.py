@@ -48,9 +48,8 @@ def createDB():
             # Store an empty UTXO set for the genesis block
             cur.execute(
                 "INSERT INTO block_utxo (blockid, utxo, height) VALUES (?, ?, ?)",
-                (gen_id, json.dumps([]), 0),
+                (gen_id, json.dumps({}), 0),
             )
-
         con.commit()
 
     except Exception as e:

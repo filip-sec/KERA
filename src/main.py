@@ -485,7 +485,11 @@ def get_block_utxo_height(blockid):
         if not utxo_row:
             raise Exception(f"UTXO and height for block {blockid} not found.")
 
-        utxo = json.loads(utxo_row[0])  # Deserialize UTXO set
+        # Deserialize UTXO set from JSON
+        utxo_list = json.loads(utxo_row[0])  # Deserialize JSON string into list of lists
+        print(f"aaUTXO list: {utxo_list}")
+        utxo = set(tuple(item) for item in utxo_list)  # Convert each list to a tuple
+        print(f"aaUTXO set: {utxo}")
         height = utxo_row[1]
 
         return block, utxo, height
@@ -499,11 +503,19 @@ def get_block_txs(txids):
 
 def store_block_utxo_height(block, utxo, height):
     con = sqlite3.connect(const.DB_NAME)
+    
+    print(f"Storing block UTXO and height for {objects.get_objid(block)}")
+    print(f"Block: {block}")
+    print(f"UTXO: {utxo}")
+    print(f"Height: {height}")
+    
+    
     try:
         cur = con.cursor()
 
-        # Serialize UTXO set
-        utxo_json = json.dumps(list(utxo))
+        # Serialize the UTXO set to JSON
+        utxo_list = list(utxo)  # Convert set to a list
+        utxo_json = json.dumps(utxo_list)  # Serialize to JSON
 
         # Store block UTXO and height
         cur.execute(
@@ -543,14 +555,18 @@ async def handle_object_msg(msg_dict, peer_self, writer):
         elif obj_dict['type'] == 'block':
             # Fetch previous block, UTXO set, and height
             prev_block, prev_utxo, prev_height = get_block_utxo_height(obj_dict['previd'])
+            
+            print(f"Previous block: {prev_block}")
+            print(f"Previous UTXO: {prev_utxo}")
+            print(f"Previous height: {prev_height}")
 
             # Collect all transactions referenced in the block
-            txs = {}
+            txs = []
             missing_txids = []
             for txid in obj_dict['txids']:
                 tx = objects.get_transaction_from_db(txid)
                 if tx:
-                    txs[txid] = tx
+                    txs.append(tx)
                 else:
                     missing_txids.append(txid)
 

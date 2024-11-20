@@ -7,7 +7,7 @@ from cryptography.hazmat.primitives import serialization
 from jcs import canonicalize
 
 # Constants
-TARGET = "00000000abc00000000000000000000000000000000000000000000000000000"
+TARGET = "0a00000000000000000000000000000000000000000000000000000000000000"
 BLOCK_REWARD = 50000000000000  # 50 KER
 
 
@@ -120,13 +120,13 @@ def create_coinbase_transaction(height, pubkey, reward=50000000000000):
 
 
 
-def mine_block(prev_blockid, transactions, miner="tester"):
+def mine_block(prev_blockid, tx_ids, miner="tester"):
     """Simulates mining a block."""
     nonce = 0
     timestamp = int(time.time())
     block = {
         "type": "block",
-        "txids": [tx["id"] for tx in transactions],
+        "txids": tx_ids,
         "nonce": None,
         "previd": prev_blockid,
         "created": timestamp,
@@ -137,17 +137,19 @@ def mine_block(prev_blockid, transactions, miner="tester"):
 
     while True:
         block["nonce"] = f"{nonce:064x}"
-        block_data = json.dumps(block, separators=(',', ':'))
-        blockid = hashlib.blake2s(block_data.encode('utf-8')).hexdigest()
+        blockid = calculate_object_id(block)
 
         if blockid < TARGET:
             break
 
         nonce += 1
+        
+        if nonce % 10000000 == 0:
+            print(f"Nonce: {nonce}, Block ID: {blockid}, Time in 24hr format: {time.strftime('%H:%M:%S', time.localtime())}")
 
     return block, blockid
 
-
+ 
 def main():
     print("Choose an action:")
     print("1. Generate Key Pair")

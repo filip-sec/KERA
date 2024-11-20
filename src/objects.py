@@ -228,7 +228,8 @@ def validate_block(block_dict):
             raise ErrorInvalidFormat("Block object invalid: note key too long")
         
     
-    if len(set(block_dict.keys()) - set(['txids', 'nonce', 'previd', 'created', 'T', 'miner', 'note'])) != 0:
+    if len(set(block_dict.keys()) - set(['type','txids', 'nonce', 'previd', 'created', 'T', 'miner', 'note'])) != 0:
+        print
         raise ErrorInvalidFormat("Block object invalid: Additional keys present")
     
     return True # syntax check done
@@ -342,6 +343,7 @@ def get_transaction_from_db(txid):
 # apply tx to utxo
 # returns mining fee
 def update_utxo_and_calculate_fee(tx, utxo):
+    print(f"Processing utxo of transaction {get_objid(tx)}")
     inputs_value = 0
     outputs_value = 0
 
@@ -362,6 +364,11 @@ def update_utxo_and_calculate_fee(tx, utxo):
         inputs_value += output['value']
         utxo.remove(outpoint)
         
+        print(f"Input {outpoint} processed successfully")
+        print(f"Value: {output['value']}")
+        print(f"Inputs value: {inputs_value}")
+        print(f"UTXO: {utxo}")
+        
     # Process outputs
     for i, output in enumerate(tx['outputs']):
         if output['value'] < 0:
@@ -369,15 +376,28 @@ def update_utxo_and_calculate_fee(tx, utxo):
         outputs_value += output['value']
         utxo.add((get_objid(tx), i))
         
+        print(f"Output {i} processed successfully")
+        print(f"Value: {output['value']}")
+        print(f"Outputs value: {outputs_value}")
+        print(f"UTXO: {utxo}")
+        
     return inputs_value - outputs_value
 
 
 # verify that a block is valid in the current chain state, using known transactions txs
 def verify_block(block, prev_block, prev_utxo, prev_height, txs):
     
-    # verify the block's target less than the target
-    if int(block['T'], 16) >= int(const.TARGET, 16):
-        raise ErrorInvalidBlockPOW("Block does not meet the required mining target")
+    # verify the block's target
+    if block['T'] != const.BLOCK_TARGET:
+        raise ErrorInvalidFormat("Block target does not match the expected target")
+    
+    #get the block id and verify if its smaller than the target
+    block_id = get_objid(block)
+    
+    print(f"Block ID: {block_id}")
+    
+    if block_id >= block['T']:
+        raise ErrorInvalidBlockPOW("Block ID does not meet the target")
     
     # verify the block's timestamp is greater than the previous block's timestamp
     if block['created'] <= prev_block['created']:
@@ -391,32 +411,48 @@ def verify_block(block, prev_block, prev_utxo, prev_height, txs):
         if first_tx is None:
             raise ErrorUnknownObject(f"Transaction {block['txids'][0]} not found in database")
         if 'height' in first_tx:
+            print("Coinbase transaction found")
             first_tx_is_coinbase = True
             height = first_tx['height']
             if height != prev_height + 1:
                 raise ErrorInvalidBlockCoinbase("Coinbase transaction height does not match the height of the block")
         
-        
+    
+    print("Block header verified successfully")
+    
     # now for each transaction except the coinbase in the block execute the transaction
     utxo = copy.deepcopy(prev_utxo)
+    utxo = set(utxo)
+    print(f"UTXO: {utxo}")
     fee = 0
-    for txid in block['txids']:
-        if txid == block['txids'][0] and first_tx_is_coinbase:
+    
+    print("TXS: ", txs)
+    
+    for tx in txs:
+        print(f"Processing transaction {get_objid(tx)}")
+        if tx == txs[0] and first_tx_is_coinbase:
+            print("Skipping coinbase transaction")
             continue
         
-        tx = get_transaction_from_db(txid)
-        if tx is None:
-            raise ErrorUnknownObject(f"Transaction {txid} not found in database")
-        
-        #if transaction is coinbase raise error
-        if 'height' in tx:
+        if "height" in tx:
             raise ErrorInvalidBlockCoinbase("Coinbase transaction referenced but is not at the first position")
         
         fee += update_utxo_and_calculate_fee(tx, utxo)
+        print(f"Transaction {get_objid(tx)} applied successfully")
+        print(f"Fee: {fee}")
         
     #verify coinbase transaction
     if first_tx_is_coinbase:
+        
+        # add coinbase to utxo
+        coinbase_tx = txs[0]
+        coinbase_txid = get_objid(coinbase_tx)
+        utxo.add((coinbase_txid, 0))
+        
         max_reward = fee + const.BLOCK_REWARD
+        
+        print(f"Max reward: {max_reward}")
+        
         if len(first_tx['outputs']) != 1:
             raise ErrorInvalidBlockCoinbase("Coinbase transaction creates more than one output")
         
