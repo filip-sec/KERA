@@ -572,11 +572,26 @@ async def handle_object_msg(msg_dict, peer_self, writer):
 
             # If there are missing transactions, request them from peers and defer validation
             if missing_txids:
-                print(f"Missing transactions: {missing_txids}")
+                print(f"Block {objid} has missing transactions: {missing_txids}")
+                BLOCK_VERIFY_TASKS[objid] = {
+                    "block": obj_dict,
+                    "missing_txids": set(missing_txids),
+                    "prev_block": prev_block,
+                    "prev_utxo": prev_utxo,
+                    "prev_height": prev_height,
+                    "writer": writer,
+                    "peer": peer_self_obj,
+                }
+                
+                # Request missing transactions
                 for missing_txid in missing_txids:
                     await write_msg(writer, mk_getobject_msg(missing_txid))
-                return  # Defer block validation until missing transactions are received
 
+                # Schedule retry after 10 seconds
+                asyncio.create_task(retry_block_validation(objid))
+                
+                return  # Defer validation until retry
+                
             # Verify the block
             updated_utxo, updated_height = objects.verify_block(
                     obj_dict, prev_block, prev_utxo, prev_height, txs)
@@ -610,6 +625,74 @@ async def handle_object_msg(msg_dict, peer_self, writer):
         await q.put(mk_ihaveobject_msg(objid))
 
 
+async def retry_block_validation(block_id):
+    await asyncio.sleep(10)  # Wait 10 seconds before retrying
+
+    if block_id not in BLOCK_VERIFY_TASKS:
+        return  # Block already processed or removed
+
+    task = BLOCK_VERIFY_TASKS[block_id]
+    block = task["block"]
+    missing_txids = task["missing_txids"]
+    prev_block = task["prev_block"]
+    prev_utxo = task["prev_utxo"]
+    prev_height = task["prev_height"]
+    writer = task["writer"]
+    peer = task["peer"]
+
+    # Check if missing transactions are now available
+    still_missing = set()
+    txs = []
+    for txid in block["txids"]:
+        tx = objects.get_transaction_from_db(txid)
+        if tx:
+            txs.append(tx)
+        elif txid in missing_txids:
+            still_missing.add(txid)
+    try:
+        if still_missing:
+            print(f"Retry failed for block {block_id}. Missing transactions: {still_missing}")
+            raise ErrorUnfindableObject(f"Block {block_id} still missing transactions: {still_missing}")
+    except NonfaultyNodeException as e:
+            print("{}: An error occured: {}: {}".format(peer,e.error_name, e.message))
+            await write_msg(writer, mk_error_msg(e.message, e.error_name))
+            return
+
+    # All transactions are now available, validate the block
+    try:
+        updated_utxo, updated_height = objects.verify_block(
+            block, prev_block, prev_utxo, prev_height, txs
+        )
+        store_block_utxo_height(block, updated_utxo, updated_height)
+        print(f"Block {block_id} successfully validated after retry.")
+        
+        print("Adding new object '{}'".format(block_id))
+    
+        con = sqlite3.connect(const.DB_NAME)
+        cur = con.cursor()
+            
+        obj_str = objects.canonicalize(block).decode('utf-8')
+        cur.execute("INSERT INTO objects VALUES(?, ?)", (block_id, obj_str))
+        con.commit()
+        
+        print(f"Stored object {block_id} in database.")
+
+    except FaultyNodeException as e:
+        PEERS.removePeer(peer)
+        PEERS.save()
+        print("{}: Detected Faulty Node: {}: {}".format(peer, e.error_name, e.message))
+        try:
+            await write_msg(writer, mk_error_msg(e.message, e.error_name))
+        except:
+            pass
+    except Exception as e:
+        print("{}: An error occured: {}".format(peer, str(e)))
+    finally:
+        print("Closing connection with {}".format(peer))
+        writer.close()
+        del_connection(peer)
+        # Remove the block from the pending tasks
+        del BLOCK_VERIFY_TASKS[block_id]
 
 # returns the chaintip blockid
 def get_chaintip_blockid():
