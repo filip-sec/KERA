@@ -205,7 +205,7 @@ def validate_block(block_dict):
     if block_dict['created'] < 0:
         raise ErrorInvalidFormat("Block object invalid: created key negative")
     if block_dict['created'] > int(datetime.now().timestamp()):
-        raise ErrorInvalidFormat("Block object invalid: created key in the future")
+        raise ErrorInvalidBlockTimestamp("Block object invalid: created key in the future")
 
     if 'T' not in block_dict:
         raise ErrorInvalidFormat("Block object invalid: No T key set")
@@ -389,7 +389,7 @@ def verify_block(block, prev_block, prev_utxo, prev_height, txs):
     
     # verify the block's target
     if block['T'] != const.BLOCK_TARGET:
-        raise ErrorInvalidFormat("Block target does not match the expected target")
+        raise ErrorInvalidBlockPOW("Block target T does not match the expected target")
     
     #get the block id and verify if its smaller than the target
     block_id = get_objid(block)
@@ -428,10 +428,13 @@ def verify_block(block, prev_block, prev_utxo, prev_height, txs):
     
     print("TXS: ", txs)
     
+    skipped_first_tx = False
+    
     for tx in txs:
         print(f"Processing transaction {get_objid(tx)}")
-        if tx == txs[0] and first_tx_is_coinbase:
+        if first_tx_is_coinbase and not skipped_first_tx:
             print("Skipping coinbase transaction")
+            skipped_first_tx = True
             continue
         
         if "height" in tx:
