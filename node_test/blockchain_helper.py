@@ -111,7 +111,7 @@ def create_coinbase_transaction(height, pubkey, reward=50000000000000):
         "outputs": [
             {
                 "pubkey": pubkey,
-                "value": reward
+                "value": 99999999999990
             }
         ]
     }

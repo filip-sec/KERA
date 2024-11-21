@@ -79,6 +79,7 @@ async def send_messages(writer):
             }
         elif choice == "6":
             #fb70002c26819a156814a48690848498547b3f06f8411feee4cdeb7c772d6c7a
+            # tiago - coinbase transaction
             response = {
                 "type": "object",
                 "object": {
@@ -94,6 +95,7 @@ async def send_messages(writer):
             }
         elif choice == "7":
             #c966ef7b766a7c355749e13a58f7ac0bad0cef4da646db8aef1ea6f58cee5443
+            #tiago pays 10 to john
             response = {"object":
                 {
                     "type": "transaction",
@@ -116,6 +118,7 @@ async def send_messages(writer):
                 ,"type":"object"}
         elif choice == "8":
             #f8d92c944e29ce9b36ff6baecf2412219ff7405f4ec7108c0467737d9e82c607
+            #john pays 5 to alice and 5 to john himself
             response = {
                 "type": "object",
                 "object":
@@ -144,6 +147,7 @@ async def send_messages(writer):
             }
         elif choice == "9":
             #0713f5d3c0dcea5cac1e31d23651e52f03cf1e6dd58f72532efe9650ec303b32
+            # block with height 1
             response = {
                 "type": "object",
                                 "object": {
@@ -159,7 +163,8 @@ async def send_messages(writer):
                     "note": "Mined block"
                 }}
         elif choice == "10":
-            #e5bd64f287f62906f402b3be796341ace6663b6b8bf0d3b23cb189af5d6b9079
+            #0afb603c5e9bf99d0d3b8bc8fc6686e4d6d175fbebcd7783fe774aebc1f9152b
+            # alice - coinbase transaction
                 response = {
                     "type": "object",
                     "object": {
@@ -168,28 +173,31 @@ async def send_messages(writer):
     "outputs": [
         {
             "pubkey": "921c38b1f83f2ca0aae021239aabe22916e512f0800940420bf3ffd10da64575",
-            "value": 50000000000000
+            "value": 99999999999990
         }
     ]
-}}
+}
+                    }
         elif choice == "11":
-            #05a05e09051c76daf26bc33be14a177e1ae778c4d5d721459b3ac13c9705c72c
+            #088c43e9b9eae4190ef3544586d6810232408c08700c15fffd014365476b475d
+            #block with height 2
             response = {
                 "type": "object",
                 "object": {
     "type": "block",
     "txids": [
-        "e5bd64f287f62906f402b3be796341ace6663b6b8bf0d3b23cb189af5d6b9079",
+        "0afb603c5e9bf99d0d3b8bc8fc6686e4d6d175fbebcd7783fe774aebc1f9152b",
         "c966ef7b766a7c355749e13a58f7ac0bad0cef4da646db8aef1ea6f58cee5443",
         "f8d92c944e29ce9b36ff6baecf2412219ff7405f4ec7108c0467737d9e82c607"
     ],
-    "nonce": "0000000000000000000000000000000000000000000000000000000000000005",
+    "nonce": "000000000000000000000000000000000000000000000000000000000000000a",
     "previd": "0713f5d3c0dcea5cac1e31d23651e52f03cf1e6dd58f72532efe9650ec303b32",
-    "created": 1732127082,
+    "created": 1732215878,
     "T": "0a00000000000000000000000000000000000000000000000000000000000000",
     "miner": "testerTiago",
     "note": "Mined block"
-}}
+}
+                }
         else:
             print("Invalid choice.")
             continue
