@@ -690,7 +690,7 @@ async def retry_block_validation(block_id):
     finally:
         print("Closing connection with {}".format(peer))
         writer.close()
-        del_connection(peer)
+        del_connection((peer.host, peer.port))
         # Remove the block from the pending tasks
         del BLOCK_VERIFY_TASKS[block_id]
 
