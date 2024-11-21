@@ -626,7 +626,7 @@ async def handle_object_msg(msg_dict, peer_self, writer):
 
 
 async def retry_block_validation(block_id):
-    await asyncio.sleep(10)  # Wait 10 seconds before retrying
+    await asyncio.sleep(5)  # Wait 5 seconds before retrying
 
     if block_id not in BLOCK_VERIFY_TASKS:
         return  # Block already processed or removed
@@ -676,6 +676,10 @@ async def retry_block_validation(block_id):
         con.commit()
         
         print(f"Stored object {block_id} in database.")
+        
+        # Propagate the new object to peers
+        for k, q in CONNECTIONS.items():
+            await q.put(mk_ihaveobject_msg(block_id))
 
     except FaultyNodeException as e:
         PEERS.removePeer(peer)
@@ -685,12 +689,13 @@ async def retry_block_validation(block_id):
             await write_msg(writer, mk_error_msg(e.message, e.error_name))
         except:
             pass
-    except Exception as e:
-        print("{}: An error occured: {}".format(peer, str(e)))
-    finally:
+        
         print("Closing connection with {}".format(peer))
         writer.close()
         del_connection((peer.host, peer.port))
+    except Exception as e:
+        print("{}: An error occured: {}".format(peer, str(e)))
+    finally:
         # Remove the block from the pending tasks
         del BLOCK_VERIFY_TASKS[block_id]
 
