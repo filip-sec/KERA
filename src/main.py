@@ -578,14 +578,9 @@ async def handle_object_msg(msg_dict, peer_self, writer):
                 return  # Defer block validation until missing transactions are received
 
             # Verify the block
-            try:
-                updated_utxo, updated_height = objects.verify_block(
-                    obj_dict, prev_block, prev_utxo, prev_height, txs
-                )
-            except Exception as e:
-                print(f"Block verification failed for {objid}: {e}")
-                raise ErrorInvalidFormat(f"Block verification failed: {e}")
-            
+            updated_utxo, updated_height = objects.verify_block(
+                    obj_dict, prev_block, prev_utxo, prev_height, txs)
+
             # Store updated UTXO and height
             store_block_utxo_height(obj_dict, updated_utxo, updated_height)
 

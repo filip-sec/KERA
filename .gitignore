@@ -4,4 +4,4 @@ message/__pycache__
 .vscode/
 peers.json
 .idea
-db.db
+*.db
