@@ -193,11 +193,7 @@ def validate_block(block_dict):
 
     if 'previd' not in block_dict:
         raise ErrorInvalidFormat("Block object invalid: No previd key set")
-    if block_dict['previd'] == None:
-        raise ErrorInvalidGenesis("Block object invalid: previd key is None and height is not 0")
-    if not isinstance(block_dict['previd'], str):
-        raise ErrorInvalidFormat("Block object invalid: previd key not a string")
-    if not validate_objectid(block_dict['previd']):
+    if not validate_objectid(block_dict['previd']) and block_dict['previd'] is not None:
         raise ErrorInvalidFormat("Block object invalid: previd key not syntactically valid")
 
     if 'created' not in block_dict:

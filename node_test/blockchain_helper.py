@@ -6,8 +6,13 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 from jcs import canonicalize
 
+# import from other directory
+import sys
+sys.path.append('../src')
+import constants
+
 # Constants
-TARGET = "0a00000000000000000000000000000000000000000000000000000000000000"
+TARGET = constants.BLOCK_TARGET
 BLOCK_REWARD = 50000000000000  # 50 KER
 
 

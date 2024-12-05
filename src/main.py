@@ -553,6 +553,11 @@ async def handle_object_msg(msg_dict, peer_self, writer):
             objects.verify_transaction(obj_dict, prev_txs)
 
         elif obj_dict['type'] == 'block':
+            
+            if obj_dict['previd'] is None:
+                if objects.get_objid(obj_dict) != const.GENESIS_BLOCK_ID:
+                    raise ErrorInvalidGenesis("Block does not contain link to previous or is fake genesis block!")
+                
             # Fetch previous block, UTXO set, and height
             prev_block, prev_utxo, prev_height = get_block_utxo_height(obj_dict['previd'])
             
