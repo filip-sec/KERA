@@ -22,6 +22,11 @@ CONNECTIONS = dict()
 BACKGROUND_TASKS = set()
 BLOCK_VERIFY_TASKS = dict()
 BLOCK_WAIT_LOCK = dict()
+
+BLOCK_WAIT_CONDITIONS = {}
+BLOCK_DEPENDENCIES = {}
+
+
 BLOCK_TO_VALIDATE = dict()
 TX_WAIT_LOCK = None
 
@@ -441,6 +446,43 @@ async def handle_getobject_msg(msg_dict, writer):
     obj_dict = objects.expand_object(obj_tuple[0])
 
     await write_msg(writer, mk_object_msg(obj_dict))
+    
+# Add block dependencies and wait conditions
+async def add_block_dependencies(block_id, dependencies):
+    if block_id not in BLOCK_DEPENDENCIES:
+        BLOCK_DEPENDENCIES[block_id] = set(dependencies)
+        BLOCK_WAIT_CONDITIONS[block_id] = asyncio.Condition()
+    else:
+        BLOCK_DEPENDENCIES[block_id].update(dependencies)
+
+
+# Notify that a dependency has been resolved
+async def notify_dependency_resolved(dependency_id):
+    for block_id, dependencies in BLOCK_DEPENDENCIES.items():
+        if dependency_id in dependencies:
+            dependencies.remove(dependency_id)
+            print(f"Removed dependency {dependency_id} from block {block_id}.")
+            
+            if not dependencies:  # All dependencies resolved
+                print(f"All dependencies resolved for block {block_id}.")
+                async with BLOCK_WAIT_CONDITIONS[block_id]:
+                    BLOCK_WAIT_CONDITIONS[block_id].notify_all()
+
+# Wait for dependencies to be resolved
+async def wait_for_dependencies(block_id):
+    if block_id not in BLOCK_WAIT_CONDITIONS:
+        raise ValueError(f"No condition found for block {block_id}")
+
+    async with BLOCK_WAIT_CONDITIONS[block_id]:
+        await BLOCK_WAIT_CONDITIONS[block_id].wait()
+
+# Cleanup block dependencies
+def cleanup_block(block_id):
+    if block_id in BLOCK_DEPENDENCIES:
+        del BLOCK_DEPENDENCIES[block_id]
+    if block_id in BLOCK_WAIT_CONDITIONS:
+        del BLOCK_WAIT_CONDITIONS[block_id]
+
 
 # return a list of transactions that tx_dict references
 def gather_previous_txs(db_cur, tx_dict):
@@ -489,9 +531,7 @@ def get_block_utxo_height(blockid):
 
         # Deserialize UTXO set from JSON
         utxo_list = json.loads(utxo_row[0])  # Deserialize JSON string into list of lists
-        print(f"aaUTXO list: {utxo_list}")
         utxo = set(tuple(item) for item in utxo_list)  # Convert each list to a tuple
-        print(f"aaUTXO set: {utxo}")
         height = utxo_row[1]
 
         return block, utxo, height
@@ -503,13 +543,13 @@ def get_block_utxo_height(blockid):
 def get_block_txs(txids):
     pass # TODO
 
-def store_block_utxo_height(block, utxo, height):
+async def store_block_utxo_height(block, utxo, height):
     con = sqlite3.connect(const.DB_NAME)
     
-    print(f"Storing block UTXO and height for {objects.get_objid(block)}")
-    print(f"Block: {block}")
-    print(f"UTXO: {utxo}")
-    print(f"Height: {height}")
+    #print(f"Storing block UTXO and height for {objects.get_objid(block)}")
+    #print(f"Block: {block}")
+    #print(f"UTXO: {utxo}")
+    #print(f"Height: {height}")
     
     
     try:
@@ -529,6 +569,12 @@ def store_block_utxo_height(block, utxo, height):
         #remove the block from the block to validate
         if objects.get_objid(block) in BLOCK_TO_VALIDATE:
             del BLOCK_TO_VALIDATE[objects.get_objid(block)]
+            
+        #resolve dependencies
+        await notify_dependency_resolved(objects.get_objid(block))
+        
+        #cleanup block dependencies
+        cleanup_block(objects.get_objid(block))
         
         con.close()
 
@@ -536,7 +582,7 @@ def store_block_utxo_height(block, utxo, height):
 async def handle_object_msg(msg_dict, peer_self, writer):
     obj_dict = msg_dict['object']
     objid = objects.get_objid(obj_dict)
-    print(f"Received object with id {objid}: {obj_dict}")
+    #print(f"Received object with id {objid}: {obj_dict}")
 
     ip_self, port_self = peer_self
     peer_self_obj = Peer(ip_self, port_self)
@@ -615,33 +661,21 @@ async def handle_object_msg(msg_dict, peer_self, writer):
                 return  # Defer validation until retry
                     
                 
+            #sleep 10 seconds to simulate a block validation
+            print (f"Sleeping for 10 seconds to simulate block validation for block {objid}")
+            await asyncio.sleep(10)
+            print (f"Finished sleeping for block {objid}")
+            
             # Fetch previous block, UTXO set, and height
             prev_block, prev_utxo, prev_height = get_block_utxo_height(obj_dict['previd'])
-            
-            print(f"Previous block: {prev_block}")
-            print(f"Previous UTXO: {prev_utxo}")
-            print(f"Previous height: {prev_height}")
                 
             # Verify the block
             updated_utxo, updated_height = objects.verify_block(
                     obj_dict, prev_block, prev_utxo, prev_height, txs)
 
             # Store updated UTXO and height
-            store_block_utxo_height(obj_dict, updated_utxo, updated_height)
+            await store_block_utxo_height(obj_dict, updated_utxo, updated_height)
             
-            new_block_id = objects.get_objid(obj_dict)
-            
-            # go through all the block wait lock and check if the block is a dependency for any other block
-            for block_id, block_wait in BLOCK_WAIT_LOCK.items():
-                if block_wait["block_to_validate"] == set(new_block_id):
-                    block_wait["block_to_validate"].remove(new_block_id)
-                    print(f"Block {new_block_id} is no longer a dependency for block {block_id}")
-                if block_wait["block_to_validate"] == set() or block_wait["block_to_validate"] == None:
-                    if block_wait["transactions_to_validate"] == set():
-                        del BLOCK_WAIT_LOCK[block_id]
-                        # create a new task to validate the block
-                        asyncio.create_task(retry_block_validation(block_id))
-                        
         else:
             raise ErrorInvalidFormat(f"Unknown object type: {obj_dict['type']}")
         
@@ -681,19 +715,18 @@ async def handle_object_msg(msg_dict, peer_self, writer):
 async def retry_block_validation(block_id):
     print(f"Retrying validation for block {block_id}")
     
-    print(f"Block wait lock: {BLOCK_WAIT_LOCK}")
-    print(f"Block wait lock keys: {BLOCK_WAIT_LOCK.keys()}")
-    print(f"Block wait lock items: {BLOCK_WAIT_LOCK.items()}")
-    print(f"Block wait lock block id: {BLOCK_WAIT_LOCK[block_id]}")
+    #if block has dependencies, wait for them to be resolved
+    if block_id in BLOCK_DEPENDENCIES:
+        print(f"Block {block_id} has dependencies: {BLOCK_DEPENDENCIES[block_id]}")
+        await wait_for_dependencies(block_id)
     
-    
-    print(f"Block to validate: {BLOCK_TO_VALIDATE}")
+    print(f"Dependencies resolved for block {block_id}")
 
 async def check_block_dependencies_arrival(block_id):
-    print (f"sleeeping for 5 seconds")
-    
+    print(f"Sleeeping for 5 seconds for block {block_id}")
+
     await asyncio.sleep(5)  # Wait 5 seconds before retrying
-    
+
     print(f"Checking if block {block_id} dependencies arrived in time.")
 
     if block_id not in BLOCK_VERIFY_TASKS:
@@ -706,49 +739,49 @@ async def check_block_dependencies_arrival(block_id):
     missing_prev_block = task["missing_prev_block"]
     writer = task["writer"]
     peer = task["peer"]
-    
+
     try:
+        unvalidated_dependencies = set()
+        
+        # Check if the previous block has arrived
         if missing_prev_block:
-            # Check if we have the missing previous block
             prev_block = objects.get_obj_from_db(prev_block_id)
-            print(f"Previous block {prev_block_id} is in the database.")
             if not prev_block:
-                #check if the block is in the block to validate
+                # If the previous block is not in the `BLOCK_TO_VALIDATE`, raise an error
                 if not prev_block_id in BLOCK_TO_VALIDATE:
                     print(f"Retry failed for block {block_id}. Missing previous block: {prev_block_id}")
                     raise ErrorUnfindableObject(f"Block {block_id} still missing previous block: {prev_block_id}")
                 else:
-                    print(f"Previous block {prev_block_id} is still being validated but has arrived")
-            
+                    print(f"Previous block {prev_block_id} is still being validated but has arrived.")
+                    unvalidated_dependencies.add(prev_block_id)
+            else:
+                print(f"Previous block {prev_block_id} has arrived and is valid.")
+                
+                
         # Check if missing transactions are now available
         still_missing = set()
         for txid in missing_txs:
             tx = objects.get_obj_from_db(txid)
             if not tx:
                 still_missing.add(txid)
+
         if still_missing:
-                print(f"Retry failed for block {block_id}. Missing transactions: {still_missing}")
-                raise ErrorUnfindableObject(f"Block {block_id} still missing transactions: {still_missing}")
+            print(f"Retry failed for block {block_id}. Missing transactions: {still_missing}")
+            raise ErrorUnfindableObject(f"Block {block_id} still missing transactions: {still_missing}")
+
+        if unvalidated_dependencies:
+            print(f"Block {block_id} still has unvalidated dependencies: {unvalidated_dependencies}")
+            await add_block_dependencies(block_id, unvalidated_dependencies)
+        
+        asyncio.create_task(retry_block_validation(block_id))
+
     except NonfaultyNodeException as e:
-            print("{}: An error occured: {}: {}".format(peer,e.error_name, e.message))
-            await write_msg(writer, mk_error_msg(e.message, e.error_name))
-            return
-        
-    # all dependencies arrived in time so we can now store that the block is ready to validate but we need to first give time to validate all the new dependencies
-    
-    BLOCK_WAIT_LOCK[block_id] = {
-        "block": block,
-        "transactions_to_validate": missing_txs,
-        "block_to_validate": None,
-        "writer": writer,
-        "peer": peer,
-    }
-    
-    if missing_prev_block:
-        BLOCK_WAIT_LOCK[block_id]["block_to_validate"] = set(prev_block_id)
-        
-    asyncio.create_task(retry_block_validation(block_id))
-    
+        print(f"{peer}: An error occurred: {e.error_name}: {e.message}")
+        await write_msg(writer, mk_error_msg(e.message, e.error_name))
+    except Exception as e:
+        print(f"Error in dependency resolution for block {block_id}: {e}")
+
+
     # # All dependencies are now validated and we can now validate the block
     # try:
     #     # Fetch previous block, UTXO set, and height

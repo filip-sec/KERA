@@ -341,7 +341,7 @@ def get_obj_from_db(objid):
 # apply tx to utxo
 # returns mining fee
 def update_utxo_and_calculate_fee(tx, utxo):
-    print(f"Processing utxo of transaction {get_objid(tx)}")
+    #print(f"Processing utxo of transaction {get_objid(tx)}")
     inputs_value = 0
     outputs_value = 0
 
@@ -363,9 +363,9 @@ def update_utxo_and_calculate_fee(tx, utxo):
         utxo.remove(outpoint)
         
         print(f"Input {outpoint} processed successfully")
-        print(f"Value: {output['value']}")
-        print(f"Inputs value: {inputs_value}")
-        print(f"UTXO: {utxo}")
+        #print(f"Value: {output['value']}")
+        #print(f"Inputs value: {inputs_value}")
+        #print(f"UTXO: {utxo}")
         
     # Process outputs
     for i, output in enumerate(tx['outputs']):
@@ -375,9 +375,9 @@ def update_utxo_and_calculate_fee(tx, utxo):
         utxo.add((get_objid(tx), i))
         
         print(f"Output {i} processed successfully")
-        print(f"Value: {output['value']}")
-        print(f"Outputs value: {outputs_value}")
-        print(f"UTXO: {utxo}")
+        #print(f"Value: {output['value']}")
+        #print(f"Outputs value: {outputs_value}")
+        #print(f"UTXO: {utxo}")
         
     return inputs_value - outputs_value
 
@@ -392,7 +392,7 @@ def verify_block(block, prev_block, prev_utxo, prev_height, txs):
     #get the block id and verify if its smaller than the target
     block_id = get_objid(block)
     
-    print(f"Block ID: {block_id}")
+    print(f"Verifying Block ID: {block_id}")
     
     if block_id >= block['T']:
         raise ErrorInvalidBlockPOW("Block ID does not meet the target")
@@ -416,22 +416,22 @@ def verify_block(block, prev_block, prev_utxo, prev_height, txs):
                 raise ErrorInvalidBlockCoinbase("Coinbase transaction height does not match the height of the block")
         
     
-    print("Block header verified successfully")
+    #print("Block header verified successfully")
     
     # now for each transaction except the coinbase in the block execute the transaction
     utxo = copy.deepcopy(prev_utxo)
     utxo = set(utxo)
-    print(f"UTXO: {utxo}")
+    #print(f"UTXO: {utxo}")
     fee = 0
     
-    print("TXS: ", txs)
+    #print("TXS: ", txs)
     
     skipped_first_tx = False
     
     for tx in txs:
-        print(f"Processing transaction {get_objid(tx)}")
+        #print(f"Processing transaction {get_objid(tx)}")
         if first_tx_is_coinbase and not skipped_first_tx:
-            print("Skipping coinbase transaction")
+            #print("Skipping coinbase transaction")
             skipped_first_tx = True
             continue
         
@@ -439,8 +439,8 @@ def verify_block(block, prev_block, prev_utxo, prev_height, txs):
             raise ErrorInvalidBlockCoinbase("Coinbase transaction referenced but is not at the first position")
         
         fee += update_utxo_and_calculate_fee(tx, utxo)
-        print(f"Transaction {get_objid(tx)} applied successfully")
-        print(f"Fee: {fee}")
+        #print(f"Transaction {get_objid(tx)} applied successfully")
+        #print(f"Fee: {fee}")
         
     #verify coinbase transaction
     if first_tx_is_coinbase:
@@ -452,7 +452,7 @@ def verify_block(block, prev_block, prev_utxo, prev_height, txs):
         
         max_reward = fee + const.BLOCK_REWARD
         
-        print(f"Max reward: {max_reward}")
+        #print(f"Max reward: {max_reward}")
         
         if len(first_tx['outputs']) != 1:
             raise ErrorInvalidBlockCoinbase("Coinbase transaction creates more than one output")
