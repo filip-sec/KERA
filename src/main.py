@@ -21,8 +21,10 @@ PEERS = Peers()
 CONNECTIONS = dict()
 BACKGROUND_TASKS = set()
 BLOCK_VERIFY_TASKS = dict()
-BLOCK_WAIT_LOCK = None
+BLOCK_WAIT_LOCK = dict()
+BLOCK_TO_VALIDATE = dict()
 TX_WAIT_LOCK = None
+
 MEMPOOL = mempool.Mempool(const.GENESIS_BLOCK_ID, {})
 LISTEN_CFG = {
         "address": const.ADDRESS,
@@ -524,8 +526,11 @@ def store_block_utxo_height(block, utxo, height):
         )
         con.commit()
     finally:
+        #remove the block from the block to validate
+        if objects.get_objid(block) in BLOCK_TO_VALIDATE:
+            del BLOCK_TO_VALIDATE[objects.get_objid(block)]
+        
         con.close()
-
 
 # what to do when an object message arrives
 async def handle_object_msg(msg_dict, peer_self, writer):
@@ -558,44 +563,64 @@ async def handle_object_msg(msg_dict, peer_self, writer):
                 if objects.get_objid(obj_dict) != const.GENESIS_BLOCK_ID:
                     raise ErrorInvalidGenesis("Block does not contain link to previous or is fake genesis block!")
                 
+            #ADD BLOCK TO VALIDATE
+            BLOCK_TO_VALIDATE[objid] = obj_dict
+            
+            missing_txs = []
+            missing_prev_block = False
+            txs = []
+            
+            prev_block_id = obj_dict['previd']
+                
+            #check if previous block its in the db
+            res = cur.execute("SELECT obj FROM objects WHERE oid = ?", (prev_block_id,))
+            first_res = res.fetchone()
+            if first_res is None:
+                missing_prev_block = True
+            
+            #check if we have all its transactions
+            for txid in obj_dict['txids']:
+                tx = objects.get_obj_from_db(txid)
+                if tx:
+                    txs.append(tx)
+                else:
+                    missing_txs.append(txid)
+                    
+            if missing_txs or missing_prev_block:
+                
+                if missing_prev_block:
+                    print(f"Block {objid} is missing its previous block {prev_block_id}")
+                if missing_txs:
+                    print(f"Block {objid} is missing transactions: {missing_txs}")
+                
+                BLOCK_VERIFY_TASKS[objid] = {
+                    "block": obj_dict,
+                    "missing_txs": set(missing_txs),
+                    "prev_block_id": prev_block_id,
+                    "missing_prev_block": missing_prev_block,
+                    "writer": writer,
+                    "peer": peer_self_obj,
+                }
+                
+                # Request missing dependencies
+                if missing_prev_block:
+                    await write_msg(writer, mk_getobject_msg(prev_block_id))
+                    
+                for missing_txid in missing_txs:
+                    await write_msg(writer, mk_getobject_msg(missing_txid))
+                    
+                # Schedule retry after 5 seconds    
+                asyncio.create_task(check_block_dependencies_arrival(objid))
+                
+                return  # Defer validation until retry
+                    
+                
             # Fetch previous block, UTXO set, and height
             prev_block, prev_utxo, prev_height = get_block_utxo_height(obj_dict['previd'])
             
             print(f"Previous block: {prev_block}")
             print(f"Previous UTXO: {prev_utxo}")
             print(f"Previous height: {prev_height}")
-
-            # Collect all transactions referenced in the block
-            txs = []
-            missing_txids = []
-            for txid in obj_dict['txids']:
-                tx = objects.get_transaction_from_db(txid)
-                if tx:
-                    txs.append(tx)
-                else:
-                    missing_txids.append(txid)
-
-            # If there are missing transactions, request them from peers and defer validation
-            if missing_txids:
-                print(f"Block {objid} has missing transactions: {missing_txids}")
-                BLOCK_VERIFY_TASKS[objid] = {
-                    "block": obj_dict,
-                    "missing_txids": set(missing_txids),
-                    "prev_block": prev_block,
-                    "prev_utxo": prev_utxo,
-                    "prev_height": prev_height,
-                    "writer": writer,
-                    "peer": peer_self_obj,
-                }
-                
-                # Request missing transactions
-                for missing_txid in missing_txids:
-                    await write_msg(writer, mk_getobject_msg(missing_txid))
-
-                # Schedule retry after 10 seconds
-                asyncio.create_task(retry_block_validation(objid))
-                
-                return  # Defer validation until retry
                 
             # Verify the block
             updated_utxo, updated_height = objects.verify_block(
@@ -603,7 +628,20 @@ async def handle_object_msg(msg_dict, peer_self, writer):
 
             # Store updated UTXO and height
             store_block_utxo_height(obj_dict, updated_utxo, updated_height)
-
+            
+            new_block_id = objects.get_objid(obj_dict)
+            
+            # go through all the block wait lock and check if the block is a dependency for any other block
+            for block_id, block_wait in BLOCK_WAIT_LOCK.items():
+                if block_wait["block_to_validate"] == set(new_block_id):
+                    block_wait["block_to_validate"].remove(new_block_id)
+                    print(f"Block {new_block_id} is no longer a dependency for block {block_id}")
+                if block_wait["block_to_validate"] == set() or block_wait["block_to_validate"] == None:
+                    if block_wait["transactions_to_validate"] == set():
+                        del BLOCK_WAIT_LOCK[block_id]
+                        # create a new task to validate the block
+                        asyncio.create_task(retry_block_validation(block_id))
+                        
         else:
             raise ErrorInvalidFormat(f"Unknown object type: {obj_dict['type']}")
         
@@ -618,9 +656,19 @@ async def handle_object_msg(msg_dict, peer_self, writer):
     except NodeException as e:
         con.rollback()
         print(f"Failed to process object {objid}: {e}")
+        
+        # if block is not valid we need to remove it from the block to validate
+        if objid in BLOCK_TO_VALIDATE:
+            del BLOCK_TO_VALIDATE[objid]
+            
         raise e
     except Exception as e:
         con.rollback()
+        
+        # if block is not valid we need to remove it from the block to validate
+        if objid in BLOCK_TO_VALIDATE:
+            del BLOCK_TO_VALIDATE[objid]
+            
         raise e
     finally:
         con.close()
@@ -631,78 +679,137 @@ async def handle_object_msg(msg_dict, peer_self, writer):
 
 
 async def retry_block_validation(block_id):
+    print(f"Retrying validation for block {block_id}")
+    
+    print(f"Block wait lock: {BLOCK_WAIT_LOCK}")
+    print(f"Block wait lock keys: {BLOCK_WAIT_LOCK.keys()}")
+    print(f"Block wait lock items: {BLOCK_WAIT_LOCK.items()}")
+    print(f"Block wait lock block id: {BLOCK_WAIT_LOCK[block_id]}")
+    
+    
+    print(f"Block to validate: {BLOCK_TO_VALIDATE}")
+
+async def check_block_dependencies_arrival(block_id):
+    print (f"sleeeping for 5 seconds")
+    
     await asyncio.sleep(5)  # Wait 5 seconds before retrying
+    
+    print(f"Checking if block {block_id} dependencies arrived in time.")
 
     if block_id not in BLOCK_VERIFY_TASKS:
         return  # Block already processed or removed
 
     task = BLOCK_VERIFY_TASKS[block_id]
     block = task["block"]
-    missing_txids = task["missing_txids"]
-    prev_block = task["prev_block"]
-    prev_utxo = task["prev_utxo"]
-    prev_height = task["prev_height"]
+    missing_txs = task["missing_txs"]
+    prev_block_id = task["prev_block_id"]
+    missing_prev_block = task["missing_prev_block"]
     writer = task["writer"]
     peer = task["peer"]
-
-    # Check if missing transactions are now available
-    still_missing = set()
-    txs = []
-    for txid in block["txids"]:
-        tx = objects.get_transaction_from_db(txid)
-        if tx:
-            txs.append(tx)
-        elif txid in missing_txids:
-            still_missing.add(txid)
+    
     try:
+        if missing_prev_block:
+            # Check if we have the missing previous block
+            prev_block = objects.get_obj_from_db(prev_block_id)
+            print(f"Previous block {prev_block_id} is in the database.")
+            if not prev_block:
+                #check if the block is in the block to validate
+                if not prev_block_id in BLOCK_TO_VALIDATE:
+                    print(f"Retry failed for block {block_id}. Missing previous block: {prev_block_id}")
+                    raise ErrorUnfindableObject(f"Block {block_id} still missing previous block: {prev_block_id}")
+                else:
+                    print(f"Previous block {prev_block_id} is still being validated but has arrived")
+            
+        # Check if missing transactions are now available
+        still_missing = set()
+        for txid in missing_txs:
+            tx = objects.get_obj_from_db(txid)
+            if not tx:
+                still_missing.add(txid)
         if still_missing:
-            print(f"Retry failed for block {block_id}. Missing transactions: {still_missing}")
-            raise ErrorUnfindableObject(f"Block {block_id} still missing transactions: {still_missing}")
+                print(f"Retry failed for block {block_id}. Missing transactions: {still_missing}")
+                raise ErrorUnfindableObject(f"Block {block_id} still missing transactions: {still_missing}")
     except NonfaultyNodeException as e:
             print("{}: An error occured: {}: {}".format(peer,e.error_name, e.message))
             await write_msg(writer, mk_error_msg(e.message, e.error_name))
             return
-
-    # All transactions are now available, validate the block
-    try:
-        updated_utxo, updated_height = objects.verify_block(
-            block, prev_block, prev_utxo, prev_height, txs
-        )
-        store_block_utxo_height(block, updated_utxo, updated_height)
-        print(f"Block {block_id} successfully validated after retry.")
         
-        print("Adding new object '{}'".format(block_id))
+    # all dependencies arrived in time so we can now store that the block is ready to validate but we need to first give time to validate all the new dependencies
     
-        con = sqlite3.connect(const.DB_NAME)
-        cur = con.cursor()
+    BLOCK_WAIT_LOCK[block_id] = {
+        "block": block,
+        "transactions_to_validate": missing_txs,
+        "block_to_validate": None,
+        "writer": writer,
+        "peer": peer,
+    }
+    
+    if missing_prev_block:
+        BLOCK_WAIT_LOCK[block_id]["block_to_validate"] = set(prev_block_id)
+        
+    asyncio.create_task(retry_block_validation(block_id))
+    
+    # # All dependencies are now validated and we can now validate the block
+    # try:
+    #     # Fetch previous block, UTXO set, and height
+    #     prev_block, prev_utxo, prev_height = get_block_utxo_height(prev_block)
             
-        obj_str = objects.canonicalize(block).decode('utf-8')
-        cur.execute("INSERT INTO objects VALUES(?, ?)", (block_id, obj_str))
-        con.commit()
+    #     print(f"Previous block: {prev_block}")
+    #     print(f"Previous UTXO: {prev_utxo}")
+    #     print(f"Previous height: {prev_height}")
         
-        print(f"Stored object {block_id} in database.")
+    #     txs = []
+    #     for txid in block['txids']:
+    #         tx = objects.get_obj_from_db(txid)
+    #         if tx:
+    #             txs.append(tx)
+    #         else:
+    #             print(f"Transaction {txid} not found in database.") #this should not happen
+                
+    #     updated_utxo, updated_height = objects.verify_block(
+    #         block, prev_block, prev_utxo, prev_height, txs
+    #     )
+    #     store_block_utxo_height(block, updated_utxo, updated_height)
+    #     print(f"Block {block_id} successfully validated after retry.")
         
-        # Propagate the new object to peers
-        for k, q in CONNECTIONS.items():
-            await q.put(mk_ihaveobject_msg(block_id))
+    #     print("Adding new object '{}'".format(block_id))
+    
+    #     con = sqlite3.connect(const.DB_NAME)
+    #     cur = con.cursor()
+            
+    #     obj_str = objects.canonicalize(block).decode('utf-8')
+    #     cur.execute("INSERT INTO objects VALUES(?, ?)", (block_id, obj_str))
+    #     con.commit()
+        
+    #     print(f"Stored object {block_id} in database.")
+        
+    #     # go through all the block wait lock and check if the block is a dependency for any other block
+    #     for block_id, block_wait in BLOCK_WAIT_LOCK.items():
+    #         if block_wait["block_to_validate"] == set(block_id):
+    #             del BLOCK_WAIT_LOCK[block_id]
+    #             await retry_block_validation(block_id)
+        
+    #     # Propagate the new object to peers
+    #     for k, q in CONNECTIONS.items():
+    #         await q.put(mk_ihaveobject_msg(block_id))
 
-    except FaultyNodeException as e:
-        PEERS.removePeer(peer)
-        PEERS.save()
-        print("{}: Detected Faulty Node: {}: {}".format(peer, e.error_name, e.message))
-        try:
-            await write_msg(writer, mk_error_msg(e.message, e.error_name))
-        except:
-            pass
+    # except FaultyNodeException as e:
+    #     PEERS.removePeer(peer)
+    #     PEERS.save()
+    #     print("{}: Detected Faulty Node: {}: {}".format(peer, e.error_name, e.message))
+    #     try:
+    #         await write_msg(writer, mk_error_msg(e.message, e.error_name))
+    #     except:
+    #         pass
         
-        print("Closing connection with {}".format(peer))
-        writer.close()
-        del_connection((peer.host, peer.port))
-    except Exception as e:
-        print("{}: An error occured: {}".format(peer, str(e)))
-    finally:
-        # Remove the block from the pending tasks
-        del BLOCK_VERIFY_TASKS[block_id]
+    #     print("Closing connection with {}".format(peer))
+    #     writer.close()
+    #     del_connection((peer.host, peer.port))
+    # except Exception as e:
+    #     print("{}: An error occured: {}".format(peer, str(e)))
+    # finally:
+    #     # Remove the block from the pending tasks
+    #     del BLOCK_VERIFY_TASKS[block_id]
 
 # returns the chaintip blockid
 def get_chaintip_blockid():

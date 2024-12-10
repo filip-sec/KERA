@@ -325,11 +325,11 @@ def verify_transaction(tx_dict, input_txs):
 class BlockVerifyException(Exception):
     pass
 
-def get_transaction_from_db(txid):
+def get_obj_from_db(objid):
     con = sqlite3.connect(const.DB_NAME)
     try:
         cur = con.cursor()
-        res = cur.execute("SELECT obj FROM objects WHERE oid = ?", (txid,))
+        res = cur.execute("SELECT obj FROM objects WHERE oid = ?", (objid,))
         row = res.fetchone()
         if row is None:
             return None
@@ -351,7 +351,7 @@ def update_utxo_and_calculate_fee(tx, utxo):
         if outpoint not in utxo:
             raise ErrorInvalidTxOutpoint(f"UTXO for {outpoint} not found!")
         
-        input_tx = get_transaction_from_db(outpoint[0])
+        input_tx = get_obj_from_db(outpoint[0])
         if input_tx is None:
             raise ErrorUnknownObject(f"Transaction {outpoint[0]} not found in database")
         
@@ -405,7 +405,7 @@ def verify_block(block, prev_block, prev_utxo, prev_height, txs):
     
     #check if first txid is a coinbase transaction
     if len(block['txids']) > 0:
-        first_tx = get_transaction_from_db(block['txids'][0])
+        first_tx = get_obj_from_db(block['txids'][0])
         if first_tx is None:
             raise ErrorUnknownObject(f"Transaction {block['txids'][0]} not found in database")
         if 'height' in first_tx:

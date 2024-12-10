@@ -39,12 +39,6 @@ async def async_input(prompt: str) -> str:
 async def send_messages(writer):
     while True:
         print("Choose a response to send back:")
-        print("1: Hello response")
-        print("2: Get peers response")
-        print("3: Peers response")
-        print("4: GetObject message")
-        print("5: IHaveObject message")
-        print("6: Object message")
         
         # Use async_input to avoid blocking the event loop
         choice = await async_input("Enter number: ")
