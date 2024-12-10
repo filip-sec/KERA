@@ -77,10 +77,10 @@ async def send_messages(writer):
             response = {
                 "type": "object",
                 "object": {
-                    "type": "transaction",
-                    "height": 1,
-                    "outputs": [
-                        {
+                        "type": "transaction",
+                        "height": 1,
+                        "outputs": [
+                            {
                                 "pubkey": "da550c7ac3d73fa6b13e8a04b7c5ab59c13119ee2a22a2849164235a008fbfbb",
                                 "value": 50000000000000
                             }
@@ -140,57 +140,61 @@ async def send_messages(writer):
                         }
             }
         elif choice == "9":
-            #0713f5d3c0dcea5cac1e31d23651e52f03cf1e6dd58f72532efe9650ec303b32
+            #00000396a8274e2bae40edee40c5d84d8ef349f1d8cbb699a08007731ee3e962
             # block with height 1
             response = {
                 "type": "object",
-                                "object": {
-                    "type": "block",
-                    "txids": [
-                        "fb70002c26819a156814a48690848498547b3f06f8411feee4cdeb7c772d6c7a"
-                    ],
-                    "nonce": "0000000000000000000000000000000000000000000000000000000000000015",
-                    "previd": "0000000052a0e645eca917ae1c196e0d0a4fb756747f29ef52594d68484bb5e2",
-                    "created": 1732035349,
-                    "T": "0a00000000000000000000000000000000000000000000000000000000000000",
-                    "miner": "tester",
-                    "note": "Mined block"
-                }}
+                "object":
+                    {
+                        "type": "block",
+                        "txids": [
+                            "fb70002c26819a156814a48690848498547b3f06f8411feee4cdeb7c772d6c7a"
+                        ],
+                        "nonce": "0000000000000000000000000000000000000000000000000000000000040284",
+                        "previd": "00002fa163c7dab0991544424b9fd302bb1782b185e5a3bbdf12afb758e57dee",
+                        "created": 1733843006,
+                        "T": "0000abc000000000000000000000000000000000000000000000000000000000",
+                        "miner": "testerTiago",
+                        "note": "Mined block"
+                    }
+                }
         elif choice == "10":
-            #0afb603c5e9bf99d0d3b8bc8fc6686e4d6d175fbebcd7783fe774aebc1f9152b
+            #e5bd64f287f62906f402b3be796341ace6663b6b8bf0d3b23cb189af5d6b9079
             # alice - coinbase transaction
                 response = {
                     "type": "object",
-                    "object": {
-    "type": "transaction",
-    "height": 2,
-    "outputs": [
-        {
-            "pubkey": "921c38b1f83f2ca0aae021239aabe22916e512f0800940420bf3ffd10da64575",
-            "value": 99999999999990
-        }
-    ]
-}
+                    "object":
+                    {
+                        "type": "transaction",
+                        "height": 2,
+                        "outputs": [
+                            {
+                                "pubkey": "921c38b1f83f2ca0aae021239aabe22916e512f0800940420bf3ffd10da64575",
+                                "value": 50000000000000
+                            }
+                        ]
+                    }
                     }
         elif choice == "11":
-            #088c43e9b9eae4190ef3544586d6810232408c08700c15fffd014365476b475d
+            #000038eee1d6d24dc371dcb16c99c701724ef06c53c59601c5b98ec1b6bff771
             #block with height 2
             response = {
                 "type": "object",
-                "object": {
-    "type": "block",
-    "txids": [
-        "0afb603c5e9bf99d0d3b8bc8fc6686e4d6d175fbebcd7783fe774aebc1f9152b",
-        "c966ef7b766a7c355749e13a58f7ac0bad0cef4da646db8aef1ea6f58cee5443",
-        "f8d92c944e29ce9b36ff6baecf2412219ff7405f4ec7108c0467737d9e82c607"
-    ],
-    "nonce": "000000000000000000000000000000000000000000000000000000000000000a",
-    "previd": "0713f5d3c0dcea5cac1e31d23651e52f03cf1e6dd58f72532efe9650ec303b32",
-    "created": 1732215878,
-    "T": "0a00000000000000000000000000000000000000000000000000000000000000",
-    "miner": "testerTiago",
-    "note": "Mined block"
-}
+                "object":
+                    {
+                        "type": "block",
+                        "txids": [
+                            "e5bd64f287f62906f402b3be796341ace6663b6b8bf0d3b23cb189af5d6b9079",
+                            "c966ef7b766a7c355749e13a58f7ac0bad0cef4da646db8aef1ea6f58cee5443",
+                            "f8d92c944e29ce9b36ff6baecf2412219ff7405f4ec7108c0467737d9e82c607"
+                        ],
+                        "nonce": "000000000000000000000000000000000000000000000000000000000000724c",
+                        "previd": "00000396a8274e2bae40edee40c5d84d8ef349f1d8cbb699a08007731ee3e962",
+                        "created": 1733845408,
+                        "T": "0000abc000000000000000000000000000000000000000000000000000000000",
+                        "miner": "testerAlice",
+                        "note": "Mined block"
+                    }
                 }
         else:
             print("Invalid choice.")
