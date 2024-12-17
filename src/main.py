@@ -20,18 +20,11 @@ import sys
 PEERS = Peers()
 CONNECTIONS = dict()
 BACKGROUND_TASKS = set()
-BLOCK_VERIFY_TASKS = dict()
-
-BLOCK_WAIT_CONDITIONS = {}
-BLOCK_DEPENDENCIES = {}
-
-# Tracks reverse dependencies: block -> set of blocks that depend on it
+OBJECT_VERIFY_TASKS = dict()
+OBJECT_WAIT_CONDITIONS = {}
+OBJECT_DEPENDENCIES = {}
 REVERSE_DEPENDENCIES = {}
-
-
-
-BLOCK_TO_VALIDATE = dict()
-TX_WAIT_LOCK = None
+OBJECT_TO_VALIDATE = dict()
 
 MEMPOOL = mempool.Mempool(const.GENESIS_BLOCK_ID, {})
 LISTEN_CFG = {
@@ -71,7 +64,8 @@ def add_connection(peer, queue):
 def del_connection(peer):
     ip, port = peer
     p = Peer(ip, port)
-    del CONNECTIONS[p]
+    if p in CONNECTIONS:
+        del CONNECTIONS[p]
     PEERS.removePeer(p)
     PEERS.save()
 
@@ -449,95 +443,96 @@ async def handle_getobject_msg(msg_dict, writer):
     obj_dict = objects.expand_object(obj_tuple[0])
 
     await write_msg(writer, mk_object_msg(obj_dict))
-    
+        
 # Add block dependencies and wait conditions
-async def add_block_dependencies(block_id, dependencies):
+async def add_object_dependencies(objid, dependencies):
     if not dependencies:  # If no dependencies, do not add
         return
     
-    if block_id not in BLOCK_DEPENDENCIES:
-        BLOCK_DEPENDENCIES[block_id] = set(dependencies)
-        BLOCK_WAIT_CONDITIONS[block_id] = asyncio.Condition()
+    if objid not in OBJECT_DEPENDENCIES:
+        OBJECT_DEPENDENCIES[objid] = set(dependencies)
+        OBJECT_WAIT_CONDITIONS[objid] = asyncio.Condition()
     else:
-        BLOCK_DEPENDENCIES[block_id].update(dependencies)
+        OBJECT_DEPENDENCIES[objid].update(dependencies)
         
-    print(f"Added dependencies {dependencies} for block {block_id}.")
+    print(f"Added dependencies {dependencies} for object {objid}.")
     
-    print(f"Now adding reverse dependencies for block {block_id}.")
+    print(f"Now adding reverse dependencies for object {objid}.")
         
     # Update reverse dependencies
     for dep in dependencies:
         if dep not in REVERSE_DEPENDENCIES:
             REVERSE_DEPENDENCIES[dep] = set()
-        REVERSE_DEPENDENCIES[dep].add(block_id)
+        REVERSE_DEPENDENCIES[dep].add(objid)
 
 
 # Notify that a dependency has been resolved
 async def notify_dependency_resolved(dependency_id):
-    for block_id, dependencies in BLOCK_DEPENDENCIES.items():
+    for objid, dependencies in OBJECT_DEPENDENCIES.items():
         if dependency_id in dependencies:
             dependencies.remove(dependency_id)
-            print(f"Removed dependency {dependency_id} from block {block_id}.")
+            print(f"Removed dependency {dependency_id} from object {objid}.")
             
             if not dependencies:  # All dependencies resolved
-                print(f"All dependencies resolved for block {block_id}.")
-                async with BLOCK_WAIT_CONDITIONS[block_id]:
-                    BLOCK_WAIT_CONDITIONS[block_id].notify_all()
+                print(f"All dependencies resolved for object {objid}.")
+                async with OBJECT_WAIT_CONDITIONS[objid]:
+                    OBJECT_WAIT_CONDITIONS[objid].notify_all()
 
 # Wait for dependencies to be resolved
-async def wait_for_dependencies(block_id):
-    if block_id not in BLOCK_WAIT_CONDITIONS:
-        raise ValueError(f"No condition found for block {block_id}")
+async def wait_for_dependencies(objid):
+    if objid not in OBJECT_WAIT_CONDITIONS:
+        raise ValueError(f"No condition found for object {objid}")
 
-    async with BLOCK_WAIT_CONDITIONS[block_id]:
-        await BLOCK_WAIT_CONDITIONS[block_id].wait()
+    async with OBJECT_WAIT_CONDITIONS[objid]:
+        await OBJECT_WAIT_CONDITIONS[objid].wait()
 
-# Cleanup block dependencies
-def cleanup_block(block_id):
-    if block_id in BLOCK_DEPENDENCIES:
-        del BLOCK_DEPENDENCIES[block_id]
-    if block_id in BLOCK_WAIT_CONDITIONS:
-        del BLOCK_WAIT_CONDITIONS[block_id]
+# Cleanup object dependencies
+def cleanup_obj(objid):
+    if objid in OBJECT_DEPENDENCIES:
+        del OBJECT_DEPENDENCIES[objid]
+    if objid in OBJECT_WAIT_CONDITIONS:
+        del OBJECT_WAIT_CONDITIONS[objid]
         
         
-async def propagate_invalid_ancestry(block_id, writer, peer):
-    if block_id in REVERSE_DEPENDENCIES:
-        dependents = REVERSE_DEPENDENCIES[block_id]
-        print(f"Block {block_id} is invalid. Propagating INVALID_ANCESTRY to dependents: {dependents}")
+async def propagate_invalid_ancestry(objid, writer, peer):
+    if objid in REVERSE_DEPENDENCIES:
+        dependents = REVERSE_DEPENDENCIES[objid]
+        print(f"Object {objid} is invalid. Propagating INVALID_ANCESTRY to dependents: {dependents}")
         
-        for dependent_block in dependents:
+        for dependent_obj in dependents:
             # Send an error message to notify peers about invalid ancestry
-            error_msg = mk_error_msg(f"Block {dependent_block} depends on invalid block {block_id}", "INVALID_ANCESTRY")
+            error_msg = mk_error_msg(f"Object {dependent_obj} depends on invalid object {objid}", "INVALID_ANCESTRY")
             await write_msg(writer, error_msg)
             
             # Recursively propagate invalid ancestry
-            await propagate_invalid_ancestry(dependent_block, writer, peer)
+            await propagate_invalid_ancestry(dependent_obj, writer, peer)
             
             # Cleanup tasks and dependencies
-            if dependent_block in BLOCK_VERIFY_TASKS:
-                del BLOCK_VERIFY_TASKS[dependent_block]
-            if dependent_block in BLOCK_DEPENDENCIES:
-                del BLOCK_DEPENDENCIES[dependent_block]
-            if dependent_block in REVERSE_DEPENDENCIES:
-                del REVERSE_DEPENDENCIES[dependent_block]
-            if dependent_block in BLOCK_WAIT_CONDITIONS:
-                del BLOCK_WAIT_CONDITIONS[dependent_block]
-            if dependent_block in BLOCK_TO_VALIDATE:
-                del BLOCK_TO_VALIDATE[dependent_block]
+            if dependent_obj in OBJECT_VERIFY_TASKS:
+                del OBJECT_VERIFY_TASKS[dependent_obj]
+            if dependent_obj in OBJECT_DEPENDENCIES:
+                del OBJECT_DEPENDENCIES[dependent_obj]
+            if dependent_obj in REVERSE_DEPENDENCIES:
+                del REVERSE_DEPENDENCIES[dependent_obj]
+            if dependent_obj in OBJECT_WAIT_CONDITIONS:
+                del OBJECT_WAIT_CONDITIONS[dependent_obj]
+            if dependent_obj in OBJECT_TO_VALIDATE:
+                del OBJECT_TO_VALIDATE[dependent_obj]
 
         # Remove invalidated block from REVERSE_DEPENDENCIES
-        del REVERSE_DEPENDENCIES[block_id]
-
+        del REVERSE_DEPENDENCIES[objid]
 
 
 # return a list of transactions that tx_dict references
 def gather_previous_txs(db_cur, tx_dict):
     # coinbase transaction
     if 'height' in tx_dict:
-        return {}
+        return {}, []
 
     # regular transaction
     prev_txs = {}
+    missing_txs = []
+    
     for i in tx_dict['inputs']:
         ptxid = i['outpoint']['txid']
 
@@ -552,8 +547,10 @@ def gather_previous_txs(db_cur, tx_dict):
                 raise ErrorInvalidFormat(f"Transaction attempts to spend from a block")
 
             prev_txs[ptxid] = ptx_dict
+        else:
+            missing_txs.append(ptxid)
 
-    return prev_txs
+    return prev_txs, missing_txs
 
 # get the block, the current utxo and block height
 def get_block_utxo_height(blockid):
@@ -612,15 +609,15 @@ async def store_block_utxo_height(block, utxo, height):
         con.commit()
     finally:
         #remove the block from the block to validate
-        if objects.get_objid(block) in BLOCK_TO_VALIDATE:
-            del BLOCK_TO_VALIDATE[objects.get_objid(block)]
+        if objects.get_objid(block) in OBJECT_TO_VALIDATE:
+            del OBJECT_TO_VALIDATE[objects.get_objid(block)]
         
         
         #resolve dependencies
         await notify_dependency_resolved(objects.get_objid(block))
         
         #cleanup block dependencies
-        cleanup_block(objects.get_objid(block))
+        cleanup_obj(objects.get_objid(block))
         
         # Remove reverse dependencies as block is now valid
         if objects.get_objid(block) in REVERSE_DEPENDENCIES:
@@ -649,9 +646,46 @@ async def handle_object_msg(msg_dict, peer_self, writer):
         print(f"Processing new object: {objid}")
 
         if obj_dict['type'] == 'transaction':
-            # Process transactions as before
-            prev_txs = gather_previous_txs(cur, obj_dict)
+            
+            OBJECT_TO_VALIDATE[objid] = obj_dict
+            
+            prev_txs,missing_txs = gather_previous_txs(cur, obj_dict)
+            
+            if missing_txs:
+                print(f"Transaction {objid} is missing previous transactions: {missing_txs}")
+                
+                OBJECT_VERIFY_TASKS[objid] = {
+                    "tx": obj_dict,
+                    "missing_txs": set(missing_txs),
+                    "writer": writer,
+                    "peer": peer_self_obj,
+                }
+                
+                for missing_txid in missing_txs:
+                    await write_msg(writer, mk_getobject_msg(missing_txid))
+                    
+                await add_object_dependencies(objid, set(missing_txs))
+                
+                # Schedule retry after 5 seconds    
+                asyncio.create_task(check_txs_dependencies_arrival(objid))
+                
+                return
+            
             objects.verify_transaction(obj_dict, prev_txs)
+                 
+            #remove the transaction from the transaction to validate
+            if objid in OBJECT_TO_VALIDATE:
+                del OBJECT_TO_VALIDATE[objid]
+                
+            #resolve dependencies
+            await notify_dependency_resolved(objid)
+            
+            #cleanup block dependencies
+            cleanup_obj(objid)
+            
+            # Remove reverse dependencies as tx is now valid
+            if objid in REVERSE_DEPENDENCIES:
+                del REVERSE_DEPENDENCIES[objid]
 
         elif obj_dict['type'] == 'block':
             
@@ -660,7 +694,7 @@ async def handle_object_msg(msg_dict, peer_self, writer):
                     raise ErrorInvalidGenesis("Block does not contain link to previous or is fake genesis block!")
                 
             #ADD BLOCK TO VALIDATE
-            BLOCK_TO_VALIDATE[objid] = obj_dict
+            OBJECT_TO_VALIDATE[objid] = obj_dict
             
             missing_txs = []
             missing_prev_block = False
@@ -689,7 +723,7 @@ async def handle_object_msg(msg_dict, peer_self, writer):
                 if missing_txs:
                     print(f"Block {objid} is missing transactions: {missing_txs}")
                 
-                BLOCK_VERIFY_TASKS[objid] = {
+                OBJECT_VERIFY_TASKS[objid] = {
                     "block": obj_dict,
                     "missing_txs": set(missing_txs),
                     "prev_block_id": prev_block_id,
@@ -705,7 +739,7 @@ async def handle_object_msg(msg_dict, peer_self, writer):
                 for missing_txid in missing_txs:
                     await write_msg(writer, mk_getobject_msg(missing_txid))
                     
-                await add_block_dependencies(objid, set(missing_txs + [prev_block_id]))
+                await add_object_dependencies(objid, set(missing_txs + [prev_block_id]))
                     
                 # Schedule retry after 5 seconds    
                 asyncio.create_task(check_block_dependencies_arrival(objid))
@@ -744,20 +778,20 @@ async def handle_object_msg(msg_dict, peer_self, writer):
         await propagate_invalid_ancestry(objid, writer, peer_self_obj)
         
         # Cleanup the current block
-        if objid in BLOCK_TO_VALIDATE:
-            del BLOCK_TO_VALIDATE[objid]
-        if objid in BLOCK_VERIFY_TASKS:
-            del BLOCK_VERIFY_TASKS[objid]
-        if objid in BLOCK_DEPENDENCIES:
-            del BLOCK_DEPENDENCIES[objid]
+        if objid in OBJECT_TO_VALIDATE:
+            del OBJECT_TO_VALIDATE[objid]
+        if objid in OBJECT_VERIFY_TASKS:
+            del OBJECT_VERIFY_TASKS[objid]
+        if objid in OBJECT_DEPENDENCIES:
+            del OBJECT_DEPENDENCIES[objid]
             
         raise e
     except Exception as e:
         con.rollback()
         
         # if block is not valid we need to remove it from the block to validate
-        if objid in BLOCK_TO_VALIDATE:
-            del BLOCK_TO_VALIDATE[objid]
+        if objid in OBJECT_TO_VALIDATE:
+            del OBJECT_TO_VALIDATE[objid]
             
         raise e
     finally:
@@ -772,19 +806,19 @@ async def retry_block_validation(block_id):
     print(f"Retrying validation for block {block_id}")
     
     # Check if block has dependencies
-    if block_id in BLOCK_DEPENDENCIES:
-        if not BLOCK_DEPENDENCIES[block_id]:  # Empty set, no dependencies
+    if block_id in OBJECT_DEPENDENCIES:
+        if not OBJECT_DEPENDENCIES[block_id]:  # Empty set, no dependencies
             print(f"Block {block_id} has no unresolved dependencies.")
         else:
-            print(f"Block {block_id} has dependencies: {BLOCK_DEPENDENCIES[block_id]}")
+            print(f"Block {block_id} has dependencies: {OBJECT_DEPENDENCIES[block_id]}")
             await wait_for_dependencies(block_id)
     
     print(f"Dependencies resolved for block {block_id}")
     
     #get the block to validate
-    block = BLOCK_VERIFY_TASKS[block_id]["block"]
-    writer = BLOCK_VERIFY_TASKS[block_id]["writer"]
-    peer = BLOCK_VERIFY_TASKS[block_id]["peer"]
+    block = OBJECT_VERIFY_TASKS[block_id]["block"]
+    writer = OBJECT_VERIFY_TASKS[block_id]["writer"]
+    peer = OBJECT_VERIFY_TASKS[block_id]["peer"]
     
     # # All dependencies are now validated and we can now validate the block
     try:
@@ -828,12 +862,12 @@ async def retry_block_validation(block_id):
         await propagate_invalid_ancestry(block_id, writer, peer)
         
         # Cleanup the current block
-        if block_id in BLOCK_TO_VALIDATE:
-            del BLOCK_TO_VALIDATE[block_id]
-        if block_id in BLOCK_VERIFY_TASKS:
-            del BLOCK_VERIFY_TASKS[block_id]
-        if block_id in BLOCK_DEPENDENCIES:
-            del BLOCK_DEPENDENCIES[block_id]
+        if block_id in OBJECT_TO_VALIDATE:
+            del OBJECT_TO_VALIDATE[block_id]
+        if block_id in OBJECT_VERIFY_TASKS:
+            del OBJECT_VERIFY_TASKS[block_id]
+        if block_id in OBJECT_DEPENDENCIES:
+            del OBJECT_DEPENDENCIES[block_id]
             
         PEERS.removePeer(peer)
         PEERS.save()
@@ -850,7 +884,7 @@ async def retry_block_validation(block_id):
         print("{}: An error occured: {}".format(peer, str(e)))
     finally:
         # Remove the block from the pending tasks
-        del BLOCK_VERIFY_TASKS[block_id]
+        del OBJECT_VERIFY_TASKS[block_id]
     
 
 async def check_block_dependencies_arrival(block_id):
@@ -860,11 +894,11 @@ async def check_block_dependencies_arrival(block_id):
 
     print(f"Checking if block {block_id} dependencies arrived in time.")
 
-    if block_id not in BLOCK_VERIFY_TASKS:
+    if block_id not in OBJECT_VERIFY_TASKS:
         print(f"Block {block_id} already processed or removed.")
         return  # Block already processed or removed
 
-    task = BLOCK_VERIFY_TASKS[block_id]
+    task = OBJECT_VERIFY_TASKS[block_id]
     block = task["block"]
     missing_txs = task["missing_txs"]
     prev_block_id = task["prev_block_id"]
@@ -880,7 +914,7 @@ async def check_block_dependencies_arrival(block_id):
             prev_block = objects.get_obj_from_db(prev_block_id)
             if not prev_block:
                 # If the previous block is not in the `BLOCK_TO_VALIDATE`, raise an error
-                if not prev_block_id in BLOCK_TO_VALIDATE:
+                if not prev_block_id in OBJECT_TO_VALIDATE:
                     print(f"Retry failed for block {block_id}. Missing previous block: {prev_block_id}")
                     raise ErrorUnfindableObject(f"Block {block_id} still missing previous block: {prev_block_id}")
                 else:
@@ -916,6 +950,132 @@ async def check_block_dependencies_arrival(block_id):
     except Exception as e:
         print(f"Error in dependency resolution for block {block_id}: {e}")
 
+
+async def check_txs_dependencies_arrival(tx_id):
+    print(f"Sleeeping for 5 seconds for transaction {tx_id}")
+
+    await asyncio.sleep(5)  # Wait 5 seconds before retrying
+
+    print(f"Checking if transaction {tx_id} dependencies arrived in time.")
+
+    if tx_id not in OBJECT_VERIFY_TASKS:
+        print(f"Transaction {tx_id} already processed or removed.")
+        return  # Transaction already processed or removed
+
+    task = OBJECT_VERIFY_TASKS[tx_id]
+    tx = task["tx"]
+    missing_txs = task["missing_txs"]
+    writer = task["writer"]
+    peer = task["peer"]
+
+    try:
+        for missing_txid in missing_txs:
+            missing_tx = objects.get_obj_from_db(missing_txid)
+            if not missing_tx:
+                if not missing_txid in OBJECT_TO_VALIDATE:
+                    print(f"Retry failed for transaction {tx_id}. Missing transaction: {missing_txid}")
+                    raise ErrorUnfindableObject(f"Transaction {tx_id} still missing transaction: {missing_txid}")
+                else:
+                    print(f"Transaction {missing_txid} is still being validated but has arrived.")
+                    
+        asyncio.create_task(retry_tx_validation(tx_id))
+
+    except NonfaultyNodeException as e:
+        print(f"{peer}: An error occurred: {e.error_name}: {e.message}")
+        
+        #if connection is still open, send error message
+        try:
+            await write_msg(writer, mk_error_msg(e.message, e.error_name))
+        except:
+            pass
+    except Exception as e:
+        print(f"Error in dependency resolution for transaction {tx_id}: {e}")
+
+async def retry_tx_validation(tx_id):
+    print(f"Retrying validation for transaction {tx_id}")
+    
+    # Check if transaction has dependencies
+    if tx_id in OBJECT_DEPENDENCIES:
+        if not OBJECT_DEPENDENCIES[tx_id]:  # Empty set, no dependencies
+            print(f"Transaction {tx_id} has no unresolved dependencies.")
+        else:
+            print(f"Transaction {tx_id} has dependencies: {OBJECT_DEPENDENCIES[tx_id]}")
+            await wait_for_dependencies(tx_id)
+    
+    print(f"Dependencies resolved for transaction {tx_id}")
+    
+    #get the transaction to validate
+    tx = OBJECT_VERIFY_TASKS[tx_id]["tx"]
+    writer = OBJECT_VERIFY_TASKS[tx_id]["writer"]
+    peer = OBJECT_VERIFY_TASKS[tx_id]["peer"]
+    
+    # # All dependencies are now validated and we can now validate the transaction
+    try:
+        con = sqlite3.connect(const.DB_NAME)
+        cur = con.cursor()
+        
+        prev_txs,_ = gather_previous_txs(cur, tx)
+        
+        objects.verify_transaction(tx, prev_txs)
+                 
+        #remove the transaction from the transaction to validate
+        if tx_id in OBJECT_TO_VALIDATE:
+            del OBJECT_TO_VALIDATE[tx_id]
+                
+        #resolve dependencies
+        await notify_dependency_resolved(tx_id)
+            
+        #cleanup block dependencies
+        cleanup_obj(tx_id)
+            
+        # Remove reverse dependencies as tx is now valid
+        if tx_id in REVERSE_DEPENDENCIES:
+            del REVERSE_DEPENDENCIES[tx_id]
+
+        print(f"Transaction {tx_id} successfully validated after retry.")
+        
+        print("Adding new object '{}'".format(tx_id))
+            
+        obj_str = objects.canonicalize(tx).decode('utf-8')
+        cur.execute("INSERT INTO objects VALUES(?, ?)", (tx_id, obj_str))
+        con.commit()
+        
+        print(f"Stored object {tx_id} in database.")
+
+        # Propagate the new object to peers
+        for k, q in CONNECTIONS.items():
+            await q.put(mk_ihaveobject_msg(tx_id))
+    
+    except FaultyNodeException as e:
+        
+        # Notify dependents that this block is invalid
+        await propagate_invalid_ancestry(tx_id, writer, peer)
+        
+        # Cleanup the current block
+        if tx_id in OBJECT_TO_VALIDATE:
+            del OBJECT_TO_VALIDATE[tx_id]
+        if tx_id in OBJECT_VERIFY_TASKS:
+            del OBJECT_VERIFY_TASKS[tx_id]
+        if tx_id in OBJECT_DEPENDENCIES:
+            del OBJECT_DEPENDENCIES[tx_id]
+            
+        PEERS.removePeer(peer)
+        PEERS.save()
+        print("{}: Detected Faulty Node: {}: {}".format(peer, e.error_name, e.message))
+        try:
+            await write_msg(writer, mk_error_msg(e.message, e.error_name))
+        except:
+            pass
+        
+        print("Closing connection with {}".format(peer))
+        writer.close()
+        del_connection((peer.host, peer.port))
+    except Exception as e:
+        print("{}: An error occured: {}".format(peer, str(e)))
+    finally:
+        # Remove the block from the pending tasks
+        if tx_id in OBJECT_VERIFY_TASKS:
+            del OBJECT_VERIFY_TASKS[tx_id]
 
 # returns the chaintip blockid
 def get_chaintip_blockid():
