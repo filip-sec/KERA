@@ -31,6 +31,11 @@ def createDB():
             )
             """
         )
+        
+        # Table for storing the chain tip
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS chain_tip(blockid VARCHAR(64) PRIMARY KEY)"
+        )
 
         # Preload genesis block
         res = cur.execute(
@@ -50,6 +55,10 @@ def createDB():
                 "INSERT INTO block_utxo (blockid, utxo, height) VALUES (?, ?, ?)",
                 (gen_id, json.dumps({}), 0),
             )
+            
+            # Set the chain tip to the genesis block
+            cur.execute("INSERT INTO chain_tip VALUES(?)", (gen_id,))
+            
         con.commit()
 
     except Exception as e:

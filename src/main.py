@@ -95,13 +95,13 @@ def mk_ihaveobject_msg(objid):
     return {"type":"ihaveobject", "objectid":objid}
 
 def mk_chaintip_msg(blockid):
-    pass # TODO
+    return {"type":"chaintip", "blockid":blockid}
 
 def mk_mempool_msg(txids):
     pass # TODO
 
 def mk_getchaintip_msg():
-    pass # TODO
+    return {"type":"getchaintip"}
 
 def mk_getmempool_msg():
     pass # TODO
@@ -256,7 +256,11 @@ def validate_getpeers_msg(msg_dict):
 
 # raise an exception if not valid
 def validate_getchaintip_msg(msg_dict):
-    pass # TODO
+    if msg_dict['type'] != 'getchaintip':
+        raise ErrorInvalidFormat("Message type is not 'getchaintip'!")
+
+    validate_allowed_keys(msg_dict, ['type'], 'getchaintip')
+     
 
 # raise an exception if not valid
 def validate_getmempool_msg(msg_dict):
@@ -356,7 +360,26 @@ def validate_object_msg(msg_dict):
 
 # raise an exception if not valid
 def validate_chaintip_msg(msg_dict):
-    pass # todo
+    if msg_dict['type'] != 'chaintip':
+        raise ErrorInvalidFormat("Message type is not 'chaintip'!") # assert: false
+
+    try:
+        if 'blockid' not in msg_dict:
+            raise ErrorInvalidFormat("Message malformed: blockid is missing!")
+
+        blockid = msg_dict['blockid']
+        if not isinstance(blockid, str):
+            raise ErrorInvalidFormat("Message malformed: blockid is not a string!")
+
+        if not objects.validate_objectid(blockid):
+            raise ErrorInvalidFormat("Message malformed: blockid invalid!")
+
+        validate_allowed_keys(msg_dict, ['type','blockid'], 'chaintip')
+
+    except ErrorInvalidFormat as e:
+        raise e
+    except Exception as e:
+        raise ErrorInvalidFormat("Message malformed: {}".format(str(e)))
     
 # raise an exception if not valid
 def validate_mempool_msg(msg_dict):
@@ -586,6 +609,19 @@ def get_block_utxo_height(blockid):
 def get_block_txs(txids):
     pass # TODO
 
+def get_block_height(blockid):
+    con = sqlite3.connect(const.DB_NAME)
+    try:
+        cur = con.cursor()
+        res = cur.execute("SELECT height FROM block_utxo WHERE blockid = ?", (blockid,))
+        row = res.fetchone()
+        if row:
+            return row[0]
+        return 0
+    finally:
+        con.close()
+
+
 async def store_block_utxo_height(block, utxo, height):
     con = sqlite3.connect(const.DB_NAME)
     
@@ -607,6 +643,13 @@ async def store_block_utxo_height(block, utxo, height):
             (objects.get_objid(block), utxo_json, height),
         )
         con.commit()
+        
+        # Update the chain tip if the new block is longer
+        block_id = objects.get_objid(block)
+        current_tip = get_chain_tip()
+        if height > get_block_height(current_tip):
+            update_chain_tip(block_id)
+    
     finally:
         #remove the block from the block to validate
         if objects.get_objid(block) in OBJECT_TO_VALIDATE:
@@ -1077,13 +1120,39 @@ async def retry_tx_validation(tx_id):
         if tx_id in OBJECT_VERIFY_TASKS:
             del OBJECT_VERIFY_TASKS[tx_id]
 
-# returns the chaintip blockid
-def get_chaintip_blockid():
-    pass # TODO
+def get_chain_tip():
+    con = sqlite3.connect(const.DB_NAME)
+    try:
+        cur = con.cursor()
+        res = cur.execute("SELECT blockid FROM chain_tip LIMIT 1")
+        row = res.fetchone()
+        return row[0] if row else const.GENESIS_BLOCK_ID
+    finally:
+        con.close()
+
+
+def update_chain_tip(blockid):
+    con = sqlite3.connect(const.DB_NAME)
+    try:
+        cur = con.cursor()
+        cur.execute("DELETE FROM chain_tip")
+        cur.execute("INSERT INTO chain_tip VALUES(?)", (blockid,))
+        con.commit()
+        print(f"Updated chain tip in database to {blockid}.")
+    finally:
+        con.close()
+
 
 
 async def handle_getchaintip_msg(msg_dict, writer):
-    pass # TODO
+    print("Received getchaintip request.")
+    chain_tip_blockid = get_chain_tip()
+    response = {
+        "type": "chaintip",
+        "blockid": chain_tip_blockid
+    }
+    await write_msg(writer, response)
+    print(f"Sent chain tip {chain_tip_blockid}")
 
 
 async def handle_getmempool_msg(msg_dict, writer):
@@ -1091,7 +1160,18 @@ async def handle_getmempool_msg(msg_dict, writer):
 
 
 async def handle_chaintip_msg(msg_dict):
-    pass # TODO
+    blockid = msg_dict.get("blockid")
+    print(f"Received chaintip message with blockid: {blockid}")
+
+    # Check if the blockid is already known
+    if objects.get_obj_from_db(blockid):
+        print(f"Block {blockid} already known.")
+        return
+
+    # If the block is unknown, request it
+    print(f"Requesting unknown block {blockid} from peers.")
+    for k, q in CONNECTIONS.items():
+        await q.put(mk_getobject_msg(blockid))
 
 
 async def handle_mempool_msg(msg_dict):
@@ -1129,6 +1209,7 @@ async def handle_connection(reader, writer):
         # Send initial messages
         await write_msg(writer, mk_hello_msg())
         await write_msg(writer, mk_getpeers_msg())
+        await write_msg(writer, mk_getchaintip_msg())
         
         # Complete handshake
         firstmsg_str = await asyncio.wait_for(reader.readline(),
@@ -1286,12 +1367,13 @@ def resupply_connections():
         t.add_done_callback(BACKGROUND_TASKS.discard)
 
 
+
 async def init():
     global BLOCK_WAIT_LOCK
     BLOCK_WAIT_LOCK = asyncio.Condition()
     global TX_WAIT_LOCK
     TX_WAIT_LOCK = asyncio.Condition()
-
+    
     PEERS = Peers() # this automatically loads the peers from file
 
     bootstrap_task = asyncio.create_task(bootstrap())
