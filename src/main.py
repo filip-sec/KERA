@@ -21,10 +21,13 @@ PEERS = Peers()
 CONNECTIONS = dict()
 BACKGROUND_TASKS = set()
 BLOCK_VERIFY_TASKS = dict()
-BLOCK_WAIT_LOCK = dict()
 
 BLOCK_WAIT_CONDITIONS = {}
 BLOCK_DEPENDENCIES = {}
+
+# Tracks reverse dependencies: block -> set of blocks that depend on it
+REVERSE_DEPENDENCIES = {}
+
 
 
 BLOCK_TO_VALIDATE = dict()
@@ -454,6 +457,12 @@ async def add_block_dependencies(block_id, dependencies):
         BLOCK_WAIT_CONDITIONS[block_id] = asyncio.Condition()
     else:
         BLOCK_DEPENDENCIES[block_id].update(dependencies)
+        
+    # Update reverse dependencies
+    for dep in dependencies:
+        if dep not in REVERSE_DEPENDENCIES:
+            REVERSE_DEPENDENCIES[dep] = set()
+        REVERSE_DEPENDENCIES[dep].add(block_id)
 
 
 # Notify that a dependency has been resolved
@@ -482,6 +491,36 @@ def cleanup_block(block_id):
         del BLOCK_DEPENDENCIES[block_id]
     if block_id in BLOCK_WAIT_CONDITIONS:
         del BLOCK_WAIT_CONDITIONS[block_id]
+        
+        
+async def propagate_invalid_ancestry(block_id, writer, peer):
+    if block_id in REVERSE_DEPENDENCIES:
+        dependents = REVERSE_DEPENDENCIES[block_id]
+        print(f"Block {block_id} is invalid. Propagating INVALID_ANCESTRY to dependents: {dependents}")
+        
+        for dependent_block in dependents:
+            # Send an error message to notify peers about invalid ancestry
+            error_msg = mk_error_msg(f"Block {dependent_block} depends on invalid block {block_id}", "INVALID_ANCESTRY")
+            await write_msg(writer, error_msg)
+            
+            # Recursively propagate invalid ancestry
+            await propagate_invalid_ancestry(dependent_block, writer, peer)
+            
+            # Cleanup tasks and dependencies
+            if dependent_block in BLOCK_VERIFY_TASKS:
+                del BLOCK_VERIFY_TASKS[dependent_block]
+            if dependent_block in BLOCK_DEPENDENCIES:
+                del BLOCK_DEPENDENCIES[dependent_block]
+            if dependent_block in REVERSE_DEPENDENCIES:
+                del REVERSE_DEPENDENCIES[dependent_block]
+            if dependent_block in BLOCK_WAIT_CONDITIONS:
+                del BLOCK_WAIT_CONDITIONS[dependent_block]
+            if dependent_block in BLOCK_TO_VALIDATE:
+                del BLOCK_TO_VALIDATE[dependent_block]
+
+        # Remove invalidated block from REVERSE_DEPENDENCIES
+        del REVERSE_DEPENDENCIES[block_id]
+
 
 
 # return a list of transactions that tx_dict references
@@ -551,7 +590,6 @@ async def store_block_utxo_height(block, utxo, height):
     #print(f"UTXO: {utxo}")
     #print(f"Height: {height}")
     
-    
     try:
         cur = con.cursor()
 
@@ -575,6 +613,10 @@ async def store_block_utxo_height(block, utxo, height):
         
         #cleanup block dependencies
         cleanup_block(objects.get_objid(block))
+        
+        # Remove reverse dependencies as block is now valid
+        if objects.get_objid(block) in REVERSE_DEPENDENCIES:
+            del REVERSE_DEPENDENCIES[objects.get_objid(block)]
         
         con.close()
 
@@ -659,12 +701,6 @@ async def handle_object_msg(msg_dict, peer_self, writer):
                 asyncio.create_task(check_block_dependencies_arrival(objid))
                 
                 return  # Defer validation until retry
-                    
-                
-            #sleep 10 seconds to simulate a block validation
-            print (f"Sleeping for 10 seconds to simulate block validation for block {objid}")
-            await asyncio.sleep(10)
-            print (f"Finished sleeping for block {objid}")
             
             # Fetch previous block, UTXO set, and height
             prev_block, prev_utxo, prev_height = get_block_utxo_height(obj_dict['previd'])
@@ -690,10 +726,17 @@ async def handle_object_msg(msg_dict, peer_self, writer):
     except NodeException as e:
         con.rollback()
         print(f"Failed to process object {objid}: {e}")
+            
+        # Notify dependents that this block is invalid
+        await propagate_invalid_ancestry(objid, writer, peer_self_obj)
         
-        # if block is not valid we need to remove it from the block to validate
+        # Cleanup the current block
         if objid in BLOCK_TO_VALIDATE:
             del BLOCK_TO_VALIDATE[objid]
+        if objid in BLOCK_VERIFY_TASKS:
+            del BLOCK_VERIFY_TASKS[objid]
+        if objid in BLOCK_DEPENDENCIES:
+            del BLOCK_DEPENDENCIES[objid]
             
         raise e
     except Exception as e:
@@ -721,6 +764,78 @@ async def retry_block_validation(block_id):
         await wait_for_dependencies(block_id)
     
     print(f"Dependencies resolved for block {block_id}")
+    
+    #get the block to validate
+    block = BLOCK_VERIFY_TASKS[block_id]["block"]
+    writer = BLOCK_VERIFY_TASKS[block_id]["writer"]
+    peer = BLOCK_VERIFY_TASKS[block_id]["peer"]
+    
+    # # All dependencies are now validated and we can now validate the block
+    try:
+        # Fetch previous block, UTXO set, and height
+        prev_block, prev_utxo, prev_height = get_block_utxo_height(block['previd'])
+        
+        txs = []
+        for txid in block['txids']:
+            tx = objects.get_obj_from_db(txid)
+            if tx:
+                txs.append(tx)
+            else:
+                print(f"Transaction {txid} not found in database.") #this should not happen
+                
+        updated_utxo, updated_height = objects.verify_block(
+            block, prev_block, prev_utxo, prev_height, txs
+        )
+        
+        await store_block_utxo_height(block, updated_utxo, updated_height)
+        
+        print(f"Block {block_id} successfully validated after retry.")
+        
+        print("Adding new object '{}'".format(block_id))
+    
+        con = sqlite3.connect(const.DB_NAME)
+        cur = con.cursor()
+            
+        obj_str = objects.canonicalize(block).decode('utf-8')
+        cur.execute("INSERT INTO objects VALUES(?, ?)", (block_id, obj_str))
+        con.commit()
+        
+        print(f"Stored object {block_id} in database.")
+
+        # Propagate the new object to peers
+        for k, q in CONNECTIONS.items():
+            await q.put(mk_ihaveobject_msg(block_id))
+
+    except FaultyNodeException as e:
+        
+        # Notify dependents that this block is invalid
+        await propagate_invalid_ancestry(block_id, writer, peer)
+        
+        # Cleanup the current block
+        if block_id in BLOCK_TO_VALIDATE:
+            del BLOCK_TO_VALIDATE[block_id]
+        if block_id in BLOCK_VERIFY_TASKS:
+            del BLOCK_VERIFY_TASKS[block_id]
+        if block_id in BLOCK_DEPENDENCIES:
+            del BLOCK_DEPENDENCIES[block_id]
+            
+        PEERS.removePeer(peer)
+        PEERS.save()
+        print("{}: Detected Faulty Node: {}: {}".format(peer, e.error_name, e.message))
+        try:
+            await write_msg(writer, mk_error_msg(e.message, e.error_name))
+        except:
+            pass
+        
+        print("Closing connection with {}".format(peer))
+        writer.close()
+        del_connection((peer.host, peer.port))
+    except Exception as e:
+        print("{}: An error occured: {}".format(peer, str(e)))
+    finally:
+        # Remove the block from the pending tasks
+        del BLOCK_VERIFY_TASKS[block_id]
+    
 
 async def check_block_dependencies_arrival(block_id):
     print(f"Sleeeping for 5 seconds for block {block_id}")
@@ -777,72 +892,14 @@ async def check_block_dependencies_arrival(block_id):
 
     except NonfaultyNodeException as e:
         print(f"{peer}: An error occurred: {e.error_name}: {e.message}")
-        await write_msg(writer, mk_error_msg(e.message, e.error_name))
+        #if connection is still open, send error message
+        try:
+            await write_msg(writer, mk_error_msg(e.message, e.error_name))
+        except:
+            pass
     except Exception as e:
         print(f"Error in dependency resolution for block {block_id}: {e}")
 
-
-    # # All dependencies are now validated and we can now validate the block
-    # try:
-    #     # Fetch previous block, UTXO set, and height
-    #     prev_block, prev_utxo, prev_height = get_block_utxo_height(prev_block)
-            
-    #     print(f"Previous block: {prev_block}")
-    #     print(f"Previous UTXO: {prev_utxo}")
-    #     print(f"Previous height: {prev_height}")
-        
-    #     txs = []
-    #     for txid in block['txids']:
-    #         tx = objects.get_obj_from_db(txid)
-    #         if tx:
-    #             txs.append(tx)
-    #         else:
-    #             print(f"Transaction {txid} not found in database.") #this should not happen
-                
-    #     updated_utxo, updated_height = objects.verify_block(
-    #         block, prev_block, prev_utxo, prev_height, txs
-    #     )
-    #     store_block_utxo_height(block, updated_utxo, updated_height)
-    #     print(f"Block {block_id} successfully validated after retry.")
-        
-    #     print("Adding new object '{}'".format(block_id))
-    
-    #     con = sqlite3.connect(const.DB_NAME)
-    #     cur = con.cursor()
-            
-    #     obj_str = objects.canonicalize(block).decode('utf-8')
-    #     cur.execute("INSERT INTO objects VALUES(?, ?)", (block_id, obj_str))
-    #     con.commit()
-        
-    #     print(f"Stored object {block_id} in database.")
-        
-    #     # go through all the block wait lock and check if the block is a dependency for any other block
-    #     for block_id, block_wait in BLOCK_WAIT_LOCK.items():
-    #         if block_wait["block_to_validate"] == set(block_id):
-    #             del BLOCK_WAIT_LOCK[block_id]
-    #             await retry_block_validation(block_id)
-        
-    #     # Propagate the new object to peers
-    #     for k, q in CONNECTIONS.items():
-    #         await q.put(mk_ihaveobject_msg(block_id))
-
-    # except FaultyNodeException as e:
-    #     PEERS.removePeer(peer)
-    #     PEERS.save()
-    #     print("{}: Detected Faulty Node: {}: {}".format(peer, e.error_name, e.message))
-    #     try:
-    #         await write_msg(writer, mk_error_msg(e.message, e.error_name))
-    #     except:
-    #         pass
-        
-    #     print("Closing connection with {}".format(peer))
-    #     writer.close()
-    #     del_connection((peer.host, peer.port))
-    # except Exception as e:
-    #     print("{}: An error occured: {}".format(peer, str(e)))
-    # finally:
-    #     # Remove the block from the pending tasks
-    #     del BLOCK_VERIFY_TASKS[block_id]
 
 # returns the chaintip blockid
 def get_chaintip_blockid():
@@ -977,6 +1034,7 @@ async def handle_connection(reader, writer):
         PEERS.removePeer(peer)
         PEERS.save()
         print("{}: Detected Faulty Node: {}: {}".format(peer, e.error_name, e.message))
+
         try:
             await write_msg(writer, mk_error_msg(e.message, e.error_name))
         except:

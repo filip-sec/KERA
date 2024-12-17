@@ -362,7 +362,7 @@ def update_utxo_and_calculate_fee(tx, utxo):
         inputs_value += output['value']
         utxo.remove(outpoint)
         
-        print(f"Input {outpoint} processed successfully")
+        #print(f"Input {outpoint} processed successfully")
         #print(f"Value: {output['value']}")
         #print(f"Inputs value: {inputs_value}")
         #print(f"UTXO: {utxo}")
@@ -374,7 +374,7 @@ def update_utxo_and_calculate_fee(tx, utxo):
         outputs_value += output['value']
         utxo.add((get_objid(tx), i))
         
-        print(f"Output {i} processed successfully")
+        #print(f"Output {i} processed successfully")
         #print(f"Value: {output['value']}")
         #print(f"Outputs value: {outputs_value}")
         #print(f"UTXO: {utxo}")
