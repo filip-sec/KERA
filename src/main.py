@@ -642,6 +642,7 @@ async def store_block_utxo_height(block, utxo, height):
             "INSERT INTO block_utxo (blockid, utxo, height) VALUES (?, ?, ?)",
             (objects.get_objid(block), utxo_json, height),
         )
+        print(f"Stored UTXO and height for block {objects.get_objid(block)}")
         con.commit()
         
         # Update the chain tip if the new block is longer
@@ -782,7 +783,12 @@ async def handle_object_msg(msg_dict, peer_self, writer):
                 for missing_txid in missing_txs:
                     await write_msg(writer, mk_getobject_msg(missing_txid))
                     
-                await add_object_dependencies(objid, set(missing_txs + [prev_block_id]))
+                if missing_txs and missing_prev_block:
+                    await add_object_dependencies(objid, set(missing_txs + [prev_block_id]))
+                elif missing_txs:
+                    await add_object_dependencies(objid, set(missing_txs))
+                elif missing_prev_block:
+                    await add_object_dependencies(objid, set([prev_block_id]))
                     
                 # Schedule retry after 5 seconds    
                 asyncio.create_task(check_block_dependencies_arrival(objid))
