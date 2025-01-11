@@ -3,13 +3,16 @@ from cryptography.exceptions import InvalidSignature
 from datetime import datetime
 from jcs import canonicalize
 
+import sqlite3
+import copy
+
 from message.msgexceptions import *
 
 import copy
 import hashlib
 import json
 import re
-import sqlite3
+import time
 
 import constants as const
 
@@ -38,12 +41,17 @@ def validate_nonce(nonce_str):
         return False
     return NONCE_REGEX.match(nonce_str)
 
+HUMAN_READABLE_REGEX = re.compile("^[ -~]*$")
+def validate_human_readable(s):
+    if not isinstance(s, str):
+        return False
+    return HUMAN_READABLE_REGEX.match(s)
 
-TARGET_REGEX = re.compile("^[0-9a-f]{64}$")
+# note that the target is hardcoded
 def validate_target(target_str):
     if not isinstance(target_str, str):
         return False
-    return TARGET_REGEX.match(target_str)
+    return const.BLOCK_TARGET == target_str
 
 # syntactic checks
 def validate_transaction_input(in_dict):
@@ -167,75 +175,94 @@ def validate_transaction(trans_dict):
 
     return True # syntax check done
 
+
 # syntactic checks
 def validate_block(block_dict):
     if not isinstance(block_dict, dict):
-        raise ErrorInvalidFormat("Block object invalid: Not a dictionary!") # assert: false
+        raise ErrorInvalidFormat("Block object invalid: Not a dictionary!")
 
     if 'type' not in block_dict:
-        raise ErrorInvalidFormat("Block object invalid: Type not set") # assert: false
+        raise ErrorInvalidFormat("Block object invalid: Type not set!")
     if not isinstance(block_dict['type'], str):
-        raise ErrorInvalidFormat("Block object invalid: Type not a string") # assert: false
+        raise ErrorInvalidFormat("Block object invalid: Type not a string!")
     if not block_dict['type'] == 'block':
-        raise ErrorInvalidFormat("Block object invalid: Type not 'block'") # assert: false
+        raise ErrorInvalidFormat("Block object invalid: Type not 'block'!")
+
+    if int(get_objid(block_dict), 16) >= int(const.BLOCK_TARGET, 16):
+        raise ErrorInvalidBlockPOW(f"Block does not satisfy proof-of-work equation (has an objectid of {get_objid(block_dict)})!")
 
     if 'txids' not in block_dict:
-        raise ErrorInvalidFormat("Block object invalid: No txids key set")
+        raise ErrorInvalidFormat("Block object invalid: txids not set!")
     if not isinstance(block_dict['txids'], list):
-        raise ErrorInvalidFormat("Block object invalid: txids key not a list")
+        raise ErrorInvalidFormat("Block object invalid: txids not a list!")
+    if not all(validate_objectid(t) for t in block_dict['txids']):
+        raise ErrorInvalidFormat("Block object invalid: txids contain an invalid formatted transaction id!")
 
     if 'nonce' not in block_dict:
-        raise ErrorInvalidFormat("Block object invalid: No nonce key set")
+        raise ErrorInvalidFormat("Block object invalid: nonce not set")
     if not isinstance(block_dict['nonce'], str):
-        raise ErrorInvalidFormat("Block object invalid: nonce key not a string")
+        raise ErrorInvalidFormat("Block object invalid: nonce not a string!")
     if not validate_nonce(block_dict['nonce']):
-        raise ErrorInvalidFormat("Block object invalid: nonce key not syntactically valid")
+        raise ErrorInvalidFormat("Block object invalid: nonce not of the required format!")
 
     if 'previd' not in block_dict:
-        raise ErrorInvalidFormat("Block object invalid: No previd key set")
-    if block_dict['previd'] == None:
-        raise ErrorInvalidGenesis("Block object invalid: previd key is None and height is not 0")
-    if not isinstance(block_dict['previd'], str):
-        raise ErrorInvalidFormat("Block object invalid: previd key not a string")
-    if not validate_objectid(block_dict['previd']):
-        raise ErrorInvalidFormat("Block object invalid: previd key not syntactically valid")
+        raise ErrorInvalidFormat("Block object invalid: previd not set!")
+
+    if block_dict['previd'] is None:
+        if get_objid(block_dict) != const.GENESIS_BLOCK_ID:
+            raise ErrorInvalidGenesis("Block object invalid: previd is null but this is not the genesis block")
+        else:
+            pass # this is the genesis block
+    else:
+        if not isinstance(block_dict['previd'], str):
+            raise ErrorInvalidFormat("Block object invalid: previd not null and not a string")
+        if not validate_objectid(block_dict['previd']):
+            raise ErrorInvalidFormat("Block object invalid: previd not of correct format")
 
     if 'created' not in block_dict:
-        raise ErrorInvalidFormat("Block object invalid: No created key set")
+        raise ErrorInvalidFormat("Block object invalid: created not set!")
     if not isinstance(block_dict['created'], int):
-        raise ErrorInvalidFormat("Block object invalid: created key not an integer")
-    if block_dict['created'] < 0:
-        raise ErrorInvalidFormat("Block object invalid: created key negative")
-    if block_dict['created'] > int(datetime.now().timestamp()):
-        raise ErrorInvalidBlockTimestamp("Block object invalid: created key in the future")
+        raise ErrorInvalidFormat("Block object invalid: created not an int!")
+    ts = block_dict['created']
+    if ts < 0:
+        raise ErrorInvalidFormat("Block object invalid: created timestamp smaller than zero")
+    try:
+        datetime.utcfromtimestamp(ts)
+        if ts > time.time():
+            raise ErrorInvalidBlockTimestamp("Block object invalid: created timestamp greater than current time")
+    except Exception:
+        raise ErrorInvalidBlockTimestamp("Block object invalid: created timestamp could not be parsed!")
 
     if 'T' not in block_dict:
-        raise ErrorInvalidFormat("Block object invalid: No T key set")
+        raise ErrorInvalidFormat("Block object invalid: T not set!")
     if not isinstance(block_dict['T'], str):
-        raise ErrorInvalidFormat("Block object invalid: T key not a string")
-    
+        raise ErrorInvalidFormat("Block object invalid: T not a string!")
     if not validate_target(block_dict['T']):
-        raise ErrorInvalidFormat("Block object invalid: T key not syntactically valid")
-    
+        raise ErrorInvalidFormat("Block object invalid: T not of valid format!")
+
     if 'miner' in block_dict:
         if not isinstance(block_dict['miner'], str):
-            raise ErrorInvalidFormat("Block object invalid: miner key not a string")
-        if len(block_dict['miner']) > 128:
-            raise ErrorInvalidFormat("Block object invalid: miner key too long")
-        
+            raise ErrorInvalidFormat("Block object invalid: miner not a string!")
+        if not validate_human_readable(block_dict['miner']):
+            raise ErrorInvalidFormat("Block object invalid: miner field invalid format")
+
     if 'note' in block_dict:
         if not isinstance(block_dict['note'], str):
-            raise ErrorInvalidFormat("Block object invalid: note key not a string")
-        if len(block_dict['note']) > 128:
-            raise ErrorInvalidFormat("Block object invalid: note key too long")
-        
-    
-    if len(set(block_dict.keys()) - set(['type','txids', 'nonce', 'previd', 'created', 'T', 'miner', 'note'])) != 0:
-        print
-        raise ErrorInvalidFormat("Block object invalid: Additional keys present")
-    
-    return True # syntax check done
+            raise ErrorInvalidFormat("Block object invalid: note not a string!")
+        if not validate_human_readable(block_dict['note']):
+            raise ErrorInvalidFormat("Block object invalid: note field invalid format")
 
+    block_dict_copy = copy.copy(block_dict)
+    # remove optional keys...
+    if 'miner' in block_dict_copy:
+        block_dict_copy.pop('miner')
+    if 'note' in block_dict_copy:
+        block_dict_copy.pop('note')
+    # ... to check for required keys
+    if len(set(block_dict_copy.keys()) - set(['type', 'txids', 'nonce', 'previd', 'created', 'T'])) != 0:
+        raise ErrorInvalidFormat("Block object invalid: Contains additional keys")
+
+    return True
 
 # syntactic checks
 def validate_object(obj_dict):
@@ -290,6 +317,19 @@ def verify_transaction(tx_dict, input_txs):
     if 'height' in tx_dict:
         return # assume all syntactically valid coinbase transactions are valid
 
+    tx_id = get_objid(tx_dict)
+
+    missing_objects = []
+
+    for i in tx_dict['inputs']:
+        ptxid = i['outpoint']['txid']
+
+        if ptxid not in input_txs:
+            missing_objects.append(ptxid)
+
+    if len(missing_objects) > 0:
+        raise NeedMoreObjects(f"Transaction {tx_id} needs more objects {missing_objects}", missing_objects)
+
     # regular transaction
     insum = 0 # sum of input values
     in_dict = dict()
@@ -304,9 +344,6 @@ def verify_transaction(tx_dict, input_txs):
                 in_dict[ptxid].add(ptxidx)
         else:
             in_dict[ptxid] = {ptxidx}
-
-        if ptxid not in input_txs:
-            raise ErrorUnknownObject(f"Transaction {ptxid} not known")
 
         ptx_dict = input_txs[ptxid]
 
@@ -326,143 +363,233 @@ def verify_transaction(tx_dict, input_txs):
     if insum < sum([o['value'] for o in tx_dict['outputs']]):
         raise ErrorInvalidTxConservation("Sum of inputs < sum of outputs!")
 
-class BlockVerifyException(Exception):
-    pass
-
-def get_transaction_from_db(txid):
+def get_block_utxo_height(blockid):
     con = sqlite3.connect(const.DB_NAME)
     try:
         cur = con.cursor()
-        res = cur.execute("SELECT obj FROM objects WHERE oid = ?", (txid,))
-        row = res.fetchone()
-        if row is None:
-            return None
-        return expand_object(row[0])
+
+        # TODO: maybe collapse this into a single joined query
+
+        res = cur.execute("SELECT obj FROM objects WHERE oid = ?", (blockid,))
+        block_tuple = res.fetchone()
+        if block_tuple is None:
+            return (None, None, None)
+
+        block = expand_object(block_tuple[0])
+
+        res = cur.execute("SELECT utxoset FROM utxo WHERE blockid = ?", (blockid,))
+        utxo_tuple = res.fetchone()
+        if utxo_tuple is None:
+            return (block, None, None)
+
+        utxo = expand_object(utxo_tuple[0])
+
+        res = cur.execute("SELECT height FROM heights WHERE blockid = ?", (blockid,))
+        height_tuple = res.fetchone()
+        if height_tuple is None:
+            return (block, utxo, None)
+
+        height = height_tuple[0]
+
+        return (block, utxo, height)
+
     finally:
         con.close()
-        
+
+# get all transactions as a dict txid -> tx from a list of ids
+def get_block_txs(txids):
+    txs = dict()
+
+    con = sqlite3.connect(const.DB_NAME)
+    try:
+        cur = con.cursor()
+
+        for txid in txids:
+            res = cur.execute("SELECT obj FROM objects WHERE oid = ?", (txid,))
+            tx_tuple = res.fetchone()
+            if tx_tuple is not None:
+                txs[txid] = expand_object(tx_tuple[0])
+
+        return txs
+
+    finally:
+        con.close()
+
+
+def verify_block(block_dict):
+    print(f"Called verify_block for block {block_dict}")
+    blockid = get_objid(block_dict)
+
+    prev_utxo = None
+    prev_block = None
+    prev_height = None
+
+    previd = block_dict['previd']
+    prev_block, prev_utxo, prev_height = get_block_utxo_height(previd)
+
+    missing_objects = []
+    
+    # check if we have all TXs, fetch them if necessary
+    txs = get_block_txs(block_dict['txids'])
+    missing_objects = set(block_dict['txids']) - set(txs.keys())
+
+    if prev_block is None:
+        missing_objects.add(previd)
+
+    print(f'Set of missing objects: {missing_objects}')
+    if len(missing_objects) > 0:
+        raise NeedMoreObjects(f"Block {blockid} requires objects {missing_objects}", missing_objects)
+
+    new_utxo, height = verify_block_tail(block_dict, prev_block, prev_utxo, prev_height, txs)
+
+    # if everything checks out store the block, its UTXO and its height and
+    # broadcast the new block's ID to all connected peers.
+    print("Adding new object '{}'".format(blockid))
+    return new_utxo, height
 
 # apply tx to utxo
 # returns mining fee
 def update_utxo_and_calculate_fee(tx, utxo):
-    print(f"Processing utxo of transaction {get_objid(tx)}")
-    inputs_value = 0
-    outputs_value = 0
+    txid = get_objid(tx)
 
-    # Process inputs
-    for input in tx['inputs']:
-        outpoint = (input['outpoint']['txid'], input['outpoint']['index'])
-        if outpoint not in utxo:
-            raise ErrorInvalidTxOutpoint(f"UTXO for {outpoint} not found!")
-        
-        input_tx = get_transaction_from_db(outpoint[0])
-        if input_tx is None:
-            raise ErrorUnknownObject(f"Transaction {outpoint[0]} not found in database")
-        
-        if outpoint[1] >= len(input_tx['outputs']):
-            raise ErrorInvalidTxOutpoint(f"Output index {outpoint[1]} not found in transaction {outpoint[0]}")
-        
-        output = input_tx['outputs'][outpoint[1]]
-        inputs_value += output['value']
-        utxo.remove(outpoint)
-        
-        print(f"Input {outpoint} processed successfully")
-        print(f"Value: {output['value']}")
-        print(f"Inputs value: {inputs_value}")
-        print(f"UTXO: {utxo}")
-        
-    # Process outputs
-    for i, output in enumerate(tx['outputs']):
-        if output['value'] < 0:
-            raise ErrorInvalidTxConservation(f"Output {i} has negative value!")
-        outputs_value += output['value']
-        utxo.add((get_objid(tx), i))
-        
-        print(f"Output {i} processed successfully")
-        print(f"Value: {output['value']}")
-        print(f"Outputs value: {outputs_value}")
-        print(f"UTXO: {utxo}")
-        
-    return inputs_value - outputs_value
+    invalue = 0
+    for inp in tx['inputs']:
+        in_txid = inp['outpoint']['txid']
+        in_idx = "{}".format(inp['outpoint']['index'])
 
+        if in_txid not in utxo:
+            raise ErrorInvalidTxOutpoint("Input for TX {} not in UTXO!".format(txid))
+        if in_idx not in utxo[in_txid]:
+            raise ErrorInvalidTxOutpoint("Input for TX {} not in UTXO!".format(txid))
 
-# verify that a block is valid in the current chain state, using known transactions txs
-def verify_block(block, prev_block, prev_utxo, prev_height, txs):
-    
-    # verify the block's target
-    if block['T'] != const.BLOCK_TARGET:
-        raise ErrorInvalidBlockPOW("Block target T does not match the expected target")
-    
-    #get the block id and verify if its smaller than the target
-    block_id = get_objid(block)
-    
-    print(f"Block ID: {block_id}")
-    
-    if block_id >= block['T']:
-        raise ErrorInvalidBlockPOW("Block ID does not meet the target")
-    
-    # verify the block's timestamp is greater than the previous block's timestamp
-    if block['created'] <= prev_block['created']:
-        raise ErrorInvalidBlockTimestamp("Block timestamp not strictly greater than that of the parent block")
-    
-    first_tx_is_coinbase = False
-    
-    #check if first txid is a coinbase transaction
-    if len(block['txids']) > 0:
-        first_tx = get_transaction_from_db(block['txids'][0])
-        if first_tx is None:
-            raise ErrorUnknownObject(f"Transaction {block['txids'][0]} not found in database")
-        if 'height' in first_tx:
-            print("Coinbase transaction found")
-            first_tx_is_coinbase = True
-            height = first_tx['height']
-            if height != prev_height + 1:
-                raise ErrorInvalidBlockCoinbase("Coinbase transaction height does not match the height of the block")
-        
-    
-    print("Block header verified successfully")
-    
-    # now for each transaction except the coinbase in the block execute the transaction
+        invalue = invalue + utxo[in_txid][in_idx]
+
+        del utxo[in_txid][in_idx]
+        if len(utxo[in_txid]) == 0:
+            del utxo[in_txid]
+
+    outvalue = 0
+    for out_idx in range(len(tx['outputs'])):
+        out = tx['outputs'][out_idx]
+
+        if txid not in utxo:
+            utxo[txid] = dict()
+
+        utxo[txid]["{}".format(out_idx)] = out['value']
+
+        outvalue = outvalue + out['value']
+
+    if outvalue > invalue:
+        raise ErrorInvalidTxOutpoint("Outputs for TX {} exceed inputs!".format(txid))
+
+    return invalue - outvalue
+
+def verify_block_tail(block, prev_block, prev_utxo, prev_height, txs):
+    if prev_block is None:
+        # assert: false (should never happen)
+        if get_objid(block) != const.GENESIS_BLOCK_ID:
+            raise ErrorInvalidGenesis("Block does not contain link to previous or is fake genesis block!")
+        prev_utxo = dict()
+        prev_created_ts = 0
+        prev_height = -1
+    else:
+        if prev_block['type'] != 'block':
+            raise ErrorInvalidFormat("Previous block is not a block!")
+        if prev_utxo is None:
+            raise ErrorUnknownObject("No UTXO for previous block found!") # assert: false (should never happen)
+        if prev_height is None:
+            raise ErrorUnknownObject("No height for previous block found!") # assert: false (should never happen)
+
+        prev_created_ts = prev_block['created']
+
+    # check block timestamp
+    if prev_created_ts >= block['created']:
+        raise ErrorInvalidBlockTimestamp("Block not created after previous block!")
+
+    if any(tx['type'] != 'transaction' for tx in txs.values()):
+        raise ErrorInvalidFormat("Not all transactions are transactions!")
+
+    height = prev_height + 1
+
+    # no transactions, return old UTXO and height
+    if len(block['txids']) == 0:
+        return prev_utxo, height
+
+    # recheck if we have all transactions
+    for txid in block['txids']:
+        if txid not in txs:
+            raise ErrorUnfindableObject("TX {} missing!".format(txid)) # assert: false (should never happen)
+
+    first_txid = block['txids'][0]
+    remaining_txids = block['txids']
     utxo = copy.deepcopy(prev_utxo)
-    utxo = set(utxo)
-    print(f"UTXO: {utxo}")
-    fee = 0
-    
-    print("TXS: ", txs)
-    
-    skipped_first_tx = False
-    
-    for tx in txs:
-        print(f"Processing transaction {get_objid(tx)}")
-        if first_tx_is_coinbase and not skipped_first_tx:
-            print("Skipping coinbase transaction")
-            skipped_first_tx = True
-            continue
-        
-        if "height" in tx:
-            raise ErrorInvalidBlockCoinbase("Coinbase transaction referenced but is not at the first position")
-        
-        fee += update_utxo_and_calculate_fee(tx, utxo)
-        print(f"Transaction {get_objid(tx)} applied successfully")
-        print(f"Fee: {fee}")
-        
-    #verify coinbase transaction
-    if first_tx_is_coinbase:
-        
-        # add coinbase to utxo
-        coinbase_tx = txs[0]
-        coinbase_txid = get_objid(coinbase_tx)
-        utxo.add((coinbase_txid, 0))
-        
-        max_reward = fee + const.BLOCK_REWARD
-        
-        print(f"Max reward: {max_reward}")
-        
-        if len(first_tx['outputs']) != 1:
-            raise ErrorInvalidBlockCoinbase("Coinbase transaction creates more than one output")
-        
-        if first_tx['outputs'][0]['value'] > max_reward:
-            raise ErrorInvalidBlockCoinbase("Coinbase transaction creates more coins than allowed")
-    
-    # return the new utxo set and new height
-    return utxo, prev_height + 1
+
+    # do we have a coinbase TX?
+    cbtx = None
+    cbtxid = None
+    if 'height' in txs[first_txid]:
+        cbtx = txs[first_txid]
+        cbtxid = first_txid
+        remaining_txids = block['txids'][1:]
+
+        # add coinbase TX output to UTXO
+        utxo[cbtxid] = { '0': cbtx['outputs'][0]['value'] }
+
+        # check coinbase (if included in block) height
+        if cbtx['height'] != height:
+            raise ErrorInvalidBlockCoinbase("Coinbase TX height invalid!")
+
+    txfees = 0
+    for txid in remaining_txids:
+        # check for additional coinbase transactions
+        if 'height' in txs[txid]:
+            raise ErrorInvalidBlockCoinbase("Coinbase TX {} not at index 0!".format(txid))
+
+        tx = txs[txid]
+
+        # check if the coinbase is spent in the same block
+        if any(inp['outpoint']['txid'] == cbtxid for inp in tx['inputs']):
+            raise ErrorInvalidTxOutpoint("Coinbase TX spent in same block!")
+
+        # check and update UTXO
+        fee = update_utxo_and_calculate_fee(tx, utxo)
+
+        txfees = txfees + fee
+
+    # check coinbase output value
+    if cbtx is not None:
+        if cbtx['outputs'][0]['value'] > const.BLOCK_REWARD + txfees:
+            raise ErrorInvalidBlockCoinbase("Coinbase TX output value too big")
+
+    return utxo, height
+
+def store_transaction(obj_dict, cur):
+    # assert: obj_dict is a valid transaction
+    objid = get_objid(obj_dict)
+    obj_str = canonicalize(obj_dict).decode('utf-8')
+    cur.execute("INSERT INTO objects VALUES(?, ?)", (objid, obj_str))
+
+# Stores for a block its utxoset and height
+def store_block(obj_dict, utxo, height, cur):
+    # assert: obj_dict is a valid block
+    utxo_str = canonicalize(utxo).decode('utf-8')
+    obj_str = canonicalize(obj_dict).decode('utf-8')
+    objid = get_objid(obj_dict)
+
+    cur.execute("INSERT INTO objects VALUES(?, ?)", (objid, obj_str))
+    cur.execute("INSERT INTO utxo VALUES(?, ?)", (objid, utxo_str))
+    cur.execute("INSERT INTO heights VALUES(?, ?)", (objid, height))
+
+def get_object(objid):
+    con = sqlite3.connect(const.DB_NAME)
+    try:
+        cur = con.cursor()
+
+        res = cur.execute("SELECT obj FROM objects WHERE oid = ?", (objid,))
+        row = res.fetchone()
+        if row is not None:
+            return expand_object(row[0])
+        else:
+            return None
+    finally:
+        con.close()

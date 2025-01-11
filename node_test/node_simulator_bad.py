@@ -72,91 +72,91 @@ async def send_messages(writer):
                 "objectid": "0000000052a0e645eca917ae1c196e0d0a4fb756747f29ef52594d68484bb333"  # Example object ID
             }
         elif choice == "6":
-            #fb70002c26819a156814a48690848498547b3f06f8411feee4cdeb7c772d6c7a
+            #19d988f2ff8a3c6db6ad5b365ea2ac7faafb356229265c5c7ef678e58e824f6b
             # tiago - coinbase transaction
             response = {
                 "type": "object",
                 "object": {
-                        "type": "transaction",
-                        "height": 1,
-                        "outputs": [
-                            {
-                                "pubkey": "da550c7ac3d73fa6b13e8a04b7c5ab59c13119ee2a22a2849164235a008fbfbb",
-                                "value": 50000000000000
-                            }
-                        ]
-                    },
+    "type": "transaction",
+    "height": 1,
+    "outputs": [
+        {
+            "pubkey": "da550c7ac3d73fa6b13e8a04b7c5ab59c13119ee2a22a2849164235a008fbfbb",
+            "value": 150000000000000
+        }
+    ]
+},
             }
         elif choice == "7":
-            #c966ef7b766a7c355749e13a58f7ac0bad0cef4da646db8aef1ea6f58cee5443
+            #8e23b9feed90e78ce693966af36b6650f8225c152c38ad4f2887a1801f99c8f3
             #tiago pays 10 to john
             response = {"object":
                 {
-                    "type": "transaction",
-                    "inputs": [
-                        {
-                            "outpoint": {
-                                "txid": "fb70002c26819a156814a48690848498547b3f06f8411feee4cdeb7c772d6c7a",
-                                "index": 0
-                            },
-                            "sig": "830af0137d79f095555d4f3c86df285a7a651edb196d326cbad5662e04122e7de00e5ecd22e99b3df12fa2ad4adeea514d48e77defd244daf8375e9e91e30001"
-                        }
-                    ],
-                    "outputs": [
-                        {
-                            "pubkey": "3391602a43aeb4ae9140f969240e955bf2b0833f325a1a12726cee5d4cda7ed5",
-                            "value": 10
-                        }
-                    ]
-                }
+    "type": "transaction",
+    "inputs": [
+        {
+            "outpoint": {
+                "txid": "19d988f2ff8a3c6db6ad5b365ea2ac7faafb356229265c5c7ef678e58e824f6b",
+                "index": 0
+            },
+            "sig": "c6dc7a40d1ee437ece20a6a86f8256f36e64ec9e8a4306d868136a8b59a1c6dd4d11f2abd03810491c63f0c6bf1e11f18f0b8a21b21e998b2bd5d0f414c5340f"
+        }
+    ],
+    "outputs": [
+        {
+            "pubkey": "3391602a43aeb4ae9140f969240e955bf2b0833f325a1a12726cee5d4cda7ed5",
+            "value": 10
+        }
+    ]
+}
                 ,"type":"object"}
         elif choice == "8":
-            #f8d92c944e29ce9b36ff6baecf2412219ff7405f4ec7108c0467737d9e82c607
+            #7fa225a386f6cf99a9e6fa62a88c93aeb7ca6929cfd3fbe3fe7cea87c6d15e05
             #john pays 5 to alice and 5 to john himself
             response = {
                 "type": "object",
                 "object":
                         {
-                            "type": "transaction",
-                            "inputs": [
-                                {
-                                    "outpoint": {
-                                        "txid": "c966ef7b766a7c355749e13a58f7ac0bad0cef4da646db8aef1ea6f58cee5443",
-                                        "index": 0
-                                    },
-                                    "sig": "b58c30f891f0b6116bd0d2ad240cbb1b370ec571aa9bc565e4fe0ec8a734787b74d844fd84a0f5d3e47773b3cf8ca3fe82005c56f18ce9bb00c7f5798c694c0a"
-                                }
-                            ],
-                            "outputs": [
-                                {
-                                    "pubkey": "3391602a43aeb4ae9140f969240e955bf2b0833f325a1a12726cee5d4cda7ed5",
-                                    "value": 5
-                                },
-                                {
-                                    "pubkey": "921c38b1f83f2ca0aae021239aabe22916e512f0800940420bf3ffd10da64575",
-                                    "value": 5
-                                }
-                            ]
-                        }
+    "type": "transaction",
+    "inputs": [
+        {
+            "outpoint": {
+                "txid": "8e23b9feed90e78ce693966af36b6650f8225c152c38ad4f2887a1801f99c8f3",
+                "index": 0
+            },
+            "sig": "dd638470a03ee2b0098737ee092a9d2ff098e514fad8f8951656d5c3bf4dce8a44463333956fd10e5bebed4ae2b8297f1bf734a0baebfd3357342e6c431eea05"
+        }
+    ],
+    "outputs": [
+        {
+            "pubkey": "3391602a43aeb4ae9140f969240e955bf2b0833f325a1a12726cee5d4cda7ed5",
+            "value": 5
+        },
+        {
+            "pubkey": "921c38b1f83f2ca0aae021239aabe22916e512f0800940420bf3ffd10da64575",
+            "value": 5
+        }
+    ]
+}
             }
         elif choice == "9":
-            #00000396a8274e2bae40edee40c5d84d8ef349f1d8cbb699a08007731ee3e962
+            #00001521190afa868d961e015c31a23cb31aaf8ec11f6bdc9b6f834ec987f2e9
             # block with height 1
             response = {
                 "type": "object",
                 "object":
                     {
-                        "type": "block",
-                        "txids": [
-                            "fb70002c26819a156814a48690848498547b3f06f8411feee4cdeb7c772d6c7a"
-                        ],
-                        "nonce": "0000000000000000000000000000000000000000000000000000000000040284",
-                        "previd": "00002fa163c7dab0991544424b9fd302bb1782b185e5a3bbdf12afb758e57dee",
-                        "created": 1733843006,
-                        "T": "0000abc000000000000000000000000000000000000000000000000000000000",
-                        "miner": "testerTiago",
-                        "note": "Mined block"
-                    }
+    "type": "block",
+    "txids": [
+        "19d988f2ff8a3c6db6ad5b365ea2ac7faafb356229265c5c7ef678e58e824f6b"
+    ],
+    "nonce": "000000000000000000000000000000000000000000000000000000000003f38a",
+    "previd": "00002fa163c7dab0991544424b9fd302bb1782b185e5a3bbdf12afb758e57dee",
+    "created": 1734456168,
+    "T": "0000abc000000000000000000000000000000000000000000000000000000000",
+    "miner": "testerTiago",
+    "note": "Mined block"
+}
                 }
         elif choice == "10":
             #e5bd64f287f62906f402b3be796341ace6663b6b8bf0d3b23cb189af5d6b9079
@@ -176,25 +176,25 @@ async def send_messages(writer):
                     }
                     }
         elif choice == "11":
-            #000038eee1d6d24dc371dcb16c99c701724ef06c53c59601c5b98ec1b6bff771
+            #0000a9029b058af2c3c25fd643f309770ff427555522e140a5f5784cfcffbeee
             #block with height 2
             response = {
                 "type": "object",
                 "object":
                     {
-                        "type": "block",
-                        "txids": [
-                            "e5bd64f287f62906f402b3be796341ace6663b6b8bf0d3b23cb189af5d6b9079",
-                            "c966ef7b766a7c355749e13a58f7ac0bad0cef4da646db8aef1ea6f58cee5443",
-                            "f8d92c944e29ce9b36ff6baecf2412219ff7405f4ec7108c0467737d9e82c607"
-                        ],
-                        "nonce": "000000000000000000000000000000000000000000000000000000000000724c",
-                        "previd": "00000396a8274e2bae40edee40c5d84d8ef349f1d8cbb699a08007731ee3e962",
-                        "created": 1733845408,
-                        "T": "0000abc000000000000000000000000000000000000000000000000000000000",
-                        "miner": "testerAlice",
-                        "note": "Mined block"
-                    }
+    "type": "block",
+    "txids": [
+        "e5bd64f287f62906f402b3be796341ace6663b6b8bf0d3b23cb189af5d6b9079",
+        "8e23b9feed90e78ce693966af36b6650f8225c152c38ad4f2887a1801f99c8f3",
+        "7fa225a386f6cf99a9e6fa62a88c93aeb7ca6929cfd3fbe3fe7cea87c6d15e05"
+    ],
+    "nonce": "000000000000000000000000000000000000000000000000000000000002cc4f",
+    "previd": "00001521190afa868d961e015c31a23cb31aaf8ec11f6bdc9b6f834ec987f2e9",
+    "created": 1734456288,
+    "T": "0000abc000000000000000000000000000000000000000000000000000000000",
+    "miner": "testerAlice",
+    "note": "Mined block"
+}
                 }
         else:
             print("Invalid choice.")
