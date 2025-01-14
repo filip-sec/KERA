@@ -104,13 +104,13 @@ def mk_chaintip_msg(blockid):
     return {"type": "chaintip", "blockid": CHAINTIP}
 
 def mk_mempool_msg(txids):
-    pass # TODO
+    return {"type": "mempool", "txids": txids}
 
 def mk_getchaintip_msg():
     return {"type": "getchaintip"}
 
 def mk_getmempool_msg():
-    pass # TODO
+    return {"type": "getmempool"}
 
 # parses a message as json. returns decoded message
 def parse_msg(msg_str):
@@ -271,7 +271,9 @@ def validate_getchaintip_msg(msg_dict):
 
 # raise an exception if not valid
 def validate_getmempool_msg(msg_dict):
-    pass # TODO
+    if msg_dict['type'] != 'getmempool':
+        raise ErrorInvalidFormat("Message type is not 'getmempool'!")
+    validate_allowed_keys(msg_dict, ['type'], 'getmempool')
 
 # raise an exception if not valid
 def validate_error_msg(msg_dict):
@@ -382,9 +384,32 @@ def validate_chaintip_msg(msg_dict):
         raise ErrorInvalidBlockPOW(f"Proposed chaintip does not satisfy proof-of-work equation (has an objectid of {msg_dict['blockid']})!")
 
     
-# raise an exception if not valid
+# Validate the mempool message
 def validate_mempool_msg(msg_dict):
-    pass # todo
+    if msg_dict['type'] != 'mempool':
+        raise ErrorInvalidFormat("Message type is not 'mempool'!")
+    
+    try:
+        if 'txids' not in msg_dict:
+            raise ErrorInvalidFormat("Message malformed: 'txids' is missing!")
+        
+        txids = msg_dict['txids']
+        if not isinstance(txids, list):
+            raise ErrorInvalidFormat("Message malformed: 'txids' is not a list!")
+        
+        # Validate each transaction ID
+        for txid in txids:
+            if not isinstance(txid, str):
+                raise ErrorInvalidFormat(f"Invalid txid: {txid} is not a string!")
+            if not objects.validate_objectid(txid):
+                raise ErrorInvalidFormat(f"Invalid txid format: {txid}")
+        
+        validate_allowed_keys(msg_dict, ['type', 'txids'], 'mempool')
+
+    except ErrorInvalidFormat as e:
+        raise e
+    except Exception as e:
+        raise ErrorInvalidFormat(f"Message malformed: {str(e)}")
         
 def validate_msg(msg_dict):
     msg_type = msg_dict['type']
@@ -499,6 +524,7 @@ def gather_previous_txs(db_cur, tx_dict):
 async def handle_object_msg(msg_dict, queue):
     global CHAINTIP
     global CHAINTIP_HEIGHT
+    height = 0
     obj_dict = msg_dict['object']
     objid = objects.get_objid(obj_dict)
     print(f"Received object with id {objid}: {obj_dict}")
@@ -525,17 +551,35 @@ async def handle_object_msg(msg_dict, queue):
             prev_txs = gather_previous_txs(cur, obj_dict)
             objects.verify_transaction(obj_dict, prev_txs)
             objects.store_transaction(obj_dict, cur)
+            MEMPOOL.try_add_tx(obj_dict)
+            print(f"New mempool: {MEMPOOL.txs}")
+            print(f"New UTXO: {MEMPOOL.utxo}")
         elif obj_dict['type'] == 'block':
             new_utxo, height = objects.verify_block(obj_dict)
             objects.store_block(obj_dict, new_utxo, height, cur)
-
-            if height > CHAINTIP_HEIGHT:
-                CHAINTIP_HEIGHT = height
-                CHAINTIP = objid
         else:
             raise ErrorInvalidFormat("Got an object of unknown type") # assert: false
         # if everything worked, commit this
         con.commit()
+        
+        if obj_dict['type'] == 'block':
+            if height > CHAINTIP_HEIGHT:
+                old_tip = CHAINTIP
+                CHAINTIP = objid
+                CHAINTIP_HEIGHT = height
+                
+                print(f"New chain tip: {CHAINTIP} at height {CHAINTIP_HEIGHT}")
+
+                # Rebase the mempool to the new chain tip
+                new_mempool_txs, updated_utxo = mempool.rebase_mempool(old_tip, CHAINTIP, MEMPOOL.txs)
+                MEMPOOL.txs = new_mempool_txs  # Update mempool transactions
+                MEMPOOL.utxo = updated_utxo    # Update mempool UTXO
+                MEMPOOL.base_block_id = CHAINTIP  # Update mempool base block ID
+
+                print(f"Mempool rebased to new chain tip {CHAINTIP}")
+                print(f"New mempool: {MEMPOOL.txs}")
+                print(f"New UTXO: {MEMPOOL.utxo}")
+            
 
         print("Added new object '{}'".format(objid))
         VALIDATOR.new_valid_object(objid)
@@ -590,7 +634,17 @@ async def handle_getchaintip_msg(msg_dict, writer):
 
 
 async def handle_getmempool_msg(msg_dict, writer):
-    pass # TODO
+    """
+    Respond to a getmempool message with the list of transaction IDs in the mempool.
+    :param msg_dict: The incoming getmempool message.
+    :param writer: The asyncio writer to send the response.
+    """
+    # Fetch transaction IDs from the mempool
+    txids = MEMPOOL.txs
+
+    # Respond with a mempool message
+    await write_msg(writer, {"type": "mempool", "txids": txids})
+
 
 
 async def handle_chaintip_msg(msg_dict):
@@ -604,7 +658,27 @@ async def handle_chaintip_msg(msg_dict):
             raise ErrorInvalidFormat(f"Proposed chaintip {objectid} is not a block")
 
 async def handle_mempool_msg(msg_dict):
-    pass # TODO
+    """
+    Handle an incoming mempool message.
+    :param msg_dict: The incoming mempool message.
+    """
+    # Extract the list of transaction IDs from the message
+    for txid in msg_dict["txids"]:
+        # Check if the transaction is already in the database or mempool
+        con = sqlite3.connect(const.DB_NAME)
+        try:
+            cur = con.cursor()
+            res = cur.execute("SELECT obj FROM objects WHERE oid = ?", (txid,))
+            if res.fetchone() is None:
+                await broadcast_msg(mk_getobject_msg(txid))
+            else: # try to add it to the mempool
+                res = cur.execute("SELECT obj FROM objects WHERE oid = ?", (txid,))
+                tx_str = res.fetchone()
+                tx_dict = objects.expand_object(tx_str[0])
+                MEMPOOL.try_add_tx(tx_dict)
+        finally:
+            con.close()
+
 
 # Helper function
 async def handle_queue_msg(msg_dict, writer):

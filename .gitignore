@@ -5,3 +5,4 @@ message/__pycache__
 peers.json
 .idea
 *.db
+_test
